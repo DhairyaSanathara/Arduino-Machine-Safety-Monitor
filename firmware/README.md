@@ -2,29 +2,52 @@
 
 | Folder | What it is |
 | --- | --- |
-| `machine_safety_v2/` | The main program for the Arduino Uno |
-| `tests/` | One small sketch per part, for bring-up and debugging (see [docs/testing.md](../docs/testing.md)) |
+| [`MachineSafetyMonitor/`](MachineSafetyMonitor) | The main program for the Arduino Uno: `config.h` for settings, `src/` for the code, one module per job |
+| [`bringup/`](bringup) | One small sketch per part, for bring-up and debugging (see [docs/testing.md](../docs/testing.md)) |
 
 ## Upload the main program
 
 1. Arduino IDE → *Tools → Manage Libraries*, install:
    - **LiquidCrystal I2C** by Frank de Brabander
    - **DHT sensor library** by Adafruit (accept **Adafruit Unified Sensor**)
-2. Open `machine_safety_v2/machine_safety_v2.ino`, board *Arduino Uno*, upload.
-3. Serial Monitor at **9600 baud**, any line ending. Type `?` for the command list.
+2. Open `MachineSafetyMonitor/MachineSafetyMonitor.ino`. The IDE opens `config.h` and the `src/` files as tabs.
+3. Board *Arduino Uno*, upload.
+4. Serial Monitor at **9600 baud**, any line ending. Type `?` for the command list.
 
 The MPU6050 is read straight from its registers, so it needs no library. If compiling fails at
 `Wire.setWireTimeout`, update *Arduino AVR Boards* in the Boards Manager.
 
+With `arduino-cli`:
+
+```bash
+arduino-cli lib install "LiquidCrystal I2C" "DHT sensor library" "Adafruit Unified Sensor"
+arduino-cli compile --fqbn arduino:avr:uno firmware/MachineSafetyMonitor
+```
+
 ## Settings
 
-Pins, limits and hardware options are constants at the top of the sketch (sections 1 to 4). The ones that most
-often need changing are listed in [docs/wiring.md](../docs/wiring.md#settings-that-must-match-your-hardware).
+Pins, limits, timing and hardware options are in [`MachineSafetyMonitor/config.h`](MachineSafetyMonitor/config.h).
+The ones that most often need changing are listed in
+[docs/wiring.md](../docs/wiring.md#settings-that-must-match-your-hardware).
 
-Program size: 31,880 of 32,256 bytes of flash, 1,299 of 2,048 bytes of RAM. Turning on `HAS_INA219` or
+Program size: 31,798 of 32,256 bytes of flash, 1,299 of 2,048 bytes of RAM. Turning on `HAS_INA219` or
 `HAS_12V_DIVIDER` adds the optional current sensor or 12 V sense; only one of them fits at a time.
 
-## Test sketches
+## Where things are
+
+| File | Job |
+| --- | --- |
+| `MachineSafetyMonitor.ino` | `setup()` and `loop()` (the scheduler), and an overview of the design |
+| `src/safety.cpp` | Limits, stop reasons, the state machine |
+| `src/sensors.cpp` | Distance, temperature trend, vibration, tilt, learned baselines |
+| `src/motor.cpp` | Soft start, relay, the E-STOP interrupt |
+| `src/app.h` | Shared types, variables and every function's prototype |
+| other `src/` files | Sensor drivers, LCD, LEDs and buzzer, commands, reports, data rows |
+
+The full table, and how to add a sensor, is in [docs/firmware.md](../docs/firmware.md#source-files). Behaviour
+tests that run on a PC are in [`tests/firmware`](../tests/firmware).
+
+## Bring-up sketches
 
 | Sketch | Checks |
 | --- | --- |
@@ -37,5 +60,3 @@ Program size: 31,880 of 32,256 bytes of flash, 1,299 of 2,048 bytes of RAM. Turn
 | `mpu_test` | MPU6050 acceleration, rotation, tilt, vibration |
 | `pwm_finder` | Which PWM pin controls the motor speed |
 | `motor_speed` | Relay plus L298N speed control from the Serial Monitor |
-
-How the program works is explained in [docs/firmware.md](../docs/firmware.md).
