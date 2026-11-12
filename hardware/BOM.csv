@@ -1,0 +1,19 @@
+ref,component,qty,specification,role,connects_to,notes
+U1,Arduino Uno R3,1,"ATmega328P, 16 MHz, 5 V logic",Controller,"USB to PC; VIN from SMPS +12 V",Clones with CH340 USB chips work too
+PS1,Dual-output SMPS,1,"230 V AC in; 12 V and 5 V out",Power for everything,"+12 V to relay COM and VIN; +5 V to breadboard rail",Metal case must be earthed; cover the mains terminals
+M1,12 V DC geared motor,1,12 V brushed DC with gearbox,The machine being protected,L298N OUT1 / OUT2,Put a 100 nF ceramic capacitor across its terminals
+U2,L298N dual H-bridge module,1,"46 V, 2 A per channel, 78M05 on board",Motor speed (PWM on ENA),"ENA via R1 to D5 (also D6); IN1 to 5 V; IN2 to GND",Remove the ENA jumper cap; keep the 12V-EN jumper on
+K1,Relay module,1,"5 V coil (SRD-05VDC-SL-C), 10 A contacts, active-low input",Hard power switch for the motor's 12 V,"IN to D9; COM to +12 V; NO to L298N +12 V",Energise-to-run: no signal = motor unpowered
+S1,HC-SR04 ultrasonic sensor,1,"2-400 cm, 40 kHz, 5 V",Distance to a person,"TRIG D11, ECHO D10",Mount at the front of the machine facing out
+S2,DHT22 (or DHT11),1,"DHT22: -40-80 C +-0.5 C; DHT11: 0-50 C +-2 C",Temperature and humidity at the motor,DATA D4,Firmware detects the model; bare 4-pin sensor needs 10 k pull-up
+S3,MPU6050 module (GY-521),1,"3-axis accelerometer + gyro, I2C 0x68",Vibration RMS and tilt,"SDA A4, SCL A5",Fix it to the same base as the motor
+D1,16x2 LCD with PCF8574 I2C backpack,1,"HD44780, I2C 0x27 or 0x3F",Local status display,"SDA A4, SCL A5",Adjust contrast with the blue potentiometer
+SW1,Push button (GO),1,"Tactile, normally open",Start / reset,D2 to GND,Internal pull-up
+SW2,Push button (E-STOP),1,"Tactile, normally open (a real NC mushroom E-stop is recommended)",Emergency stop,D3 to GND,Hardware interrupt; set ESTOP_BUTTON_IS_NC for an NC button
+LED1-3,LEDs green / yellow / red,3,"5 mm",Safe / warning / stopped,"A0, A1, A2 via R2-R4",
+R1,Resistor,1,10 kOhm,Protects the ENA signal pin,Between D5 and L298N ENA,
+R2-R4,Resistors,3,220 Ohm,LED current limit (~14 mA),In series with each LED,
+BZ1,Active buzzer,1,"5 V, built-in oscillator",Warning beeps and stop alarm,D8,
+C1,Ceramic capacitor,1,100 nF,Motor noise suppression,Across the motor terminals,
+-,Breadboard and jumper wires,1 set,Full-size breadboard,Wiring,,Screw terminals or a soldered board are more reliable
+-,Acrylic base plate,1,large enough for a full breadboard plus the SMPS and motor,Holds everything together,,
