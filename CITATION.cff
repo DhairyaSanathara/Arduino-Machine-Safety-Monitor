@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this project in your work, please cite it as below."
+title: "Arduino Machine Safety Monitor"
+abstract: >-
+  An open-source machine safety monitor for the Arduino Uno: ultrasonic proximity sensing, temperature and
+  rise-rate monitoring, learned vibration limits, tilt and stall detection, a latching emergency stop and a
+  live web dashboard. Built for the ENR206 course at Ahmedabad University.
+type: software
+authors:
+  - given-names: Dhairya
+    family-names: Sanathara
+    affiliation: Ahmedabad University
+  - given-names: Kaushal
+    family-names: Chitlange
+    affiliation: Ahmedabad University
+  - given-names: Mahi
+    family-names: Mistry
+    affiliation: Ahmedabad University
+  - given-names: Kavan
+    family-names: Vyas
+    affiliation: Ahmedabad University
+repository-code: "https://github.com/DhairyaSanathara/Arduino-Machine-Safety-Monitor"
+license: MIT
+version: 2.2.0
+date-released: "2026-11-12"
+keywords:
+  - arduino
+  - machine safety
+  - industrial safety
+  - embedded systems
+  - vibration monitoring
+  - iot
