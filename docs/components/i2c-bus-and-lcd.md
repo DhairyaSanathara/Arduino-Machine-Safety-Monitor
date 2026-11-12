@@ -58,7 +58,7 @@ returns to 4-bit mode with the halves realigned, and the screen is redrawn. The 
 
 ## Test it
 
-- `firmware/tests/lcd_test` finds the LCD's address and shows a counter.
-- `firmware/tests/hello_lcd` prints continuously and shows whether the Arduino is restarting.
-- `firmware/tests/lcd_letters` slides letters across both lines and repairs the screen itself after a wire
+- `firmware/bringup/lcd_test` finds the LCD's address and shows a counter.
+- `firmware/bringup/hello_lcd` prints continuously and shows whether the Arduino is restarting.
+- `firmware/bringup/lcd_letters` slides letters across both lines and repairs the screen itself after a wire
   glitch, printing each dropout to the Serial Monitor.

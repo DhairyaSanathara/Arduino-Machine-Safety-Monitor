@@ -73,6 +73,6 @@ low current (more near 2 A). The motor sees about 10 V of the 12 V, and the L298
 
 ## Test it
 
-- `firmware/tests/pwm_finder` drives the same changing speed on D5, D6, D10 and D11; move the ENA wire from pin to
+- `firmware/bringup/pwm_finder` drives the same changing speed on D5, D6, D10 and D11; move the ENA wire from pin to
   pin to find one that controls the motor.
-- `firmware/tests/motor_speed` sets the speed from the Serial Monitor (0 to 100 %, `+`, `-`, `x`).
+- `firmware/bringup/motor_speed` sets the speed from the Serial Monitor (0 to 100 %, `+`, `-`, `x`).

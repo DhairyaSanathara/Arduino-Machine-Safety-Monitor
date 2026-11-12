@@ -1,8 +1,33 @@
 # Firmware design
 
-`firmware/machine_safety_v2/machine_safety_v2.ino` is a state machine driven by a non-blocking scheduler.
-Nothing waits: each task checks whether its time has come and returns at once, and the safety decision runs every
-100 ms.
+The firmware in `firmware/MachineSafetyMonitor/` is a state machine driven by a non-blocking scheduler. Nothing
+waits: each task checks whether its time has come and returns at once, and the safety decision runs every 100 ms.
+
+## Source files
+
+The sketch is split into one module per job. The Arduino IDE compiles everything in `src/` with the `.ino`.
+
+| File | What it holds |
+| --- | --- |
+| `MachineSafetyMonitor.ino` | `setup()` (lamp test, self-test, interrupt, watchdog) and `loop()` (the scheduler) |
+| `config.h` | Pins, hardware options, limits and timing |
+| `src/app.h` | States, stop reasons, the `Button` type, every shared variable (`extern`) and every function prototype |
+| `src/state.cpp` | The shared variables themselves, with their start values |
+| `src/safety.cpp` | `evaluate()` compares every value with its limits; `runStateMachine()` and the `enter...()` transitions |
+| `src/sensors.cpp` | Ultrasonic ping and median, temperature trend, vibration RMS and tilt, learned baselines, 12 V checks |
+| `src/motor.cpp` | Soft start and relay sequencing; `onEstopInterrupt()` |
+| `src/self_test.cpp` | Power-up sensor checks and the `SELFTEST` event |
+| `src/mpu6050.cpp`, `src/dht_sensor.cpp`, `src/ina219.cpp` | Sensor drivers |
+| `src/i2c_bus.cpp` | I2C reads and writes with error checks |
+| `src/lcd.cpp` | Non-blocking LCD driver that resynchronises itself after a glitch |
+| `src/indicators.cpp` | LEDs, buzzer patterns, lamp test |
+| `src/commands.cpp` | Button debounce, serial commands, speed set point |
+| `src/reports.cpp`, `src/datalog.cpp` | Text reports, Serial Plotter output, CSV rows for the dashboard |
+| `src/strings.cpp`, `src/util.cpp` | Text kept in flash; small helpers |
+
+To add a sensor: put its pin or address in `config.h`, write a driver file in `src/`, declare its functions and
+variables in `app.h`, call its task from `loop()`, and give it a stop reason in `app.h` and `strings.cpp` if it
+can stop the machine. Then add a test in `tests/firmware/test_safety.cpp`.
 
 ## Scheduler
 
@@ -30,10 +55,10 @@ stateDiagram-v2
     IDLE --> RUN: GO pressed, no danger
     RUN --> WARNING: a warning limit is crossed
     WARNING --> RUN: cause clear for 3 s
-    RUN --> ESTOP: stop limit, E-STOP or x
-    WARNING --> ESTOP: stop limit, E-STOP or x
+    RUN --> ESTOP: stop limit, sensor lost, E-STOP or x
+    WARNING --> ESTOP: stop limit, sensor lost, E-STOP or x
+    IDLE --> ESTOP: E-STOP pressed
     ESTOP --> IDLE: GO pressed, every cause cleared
-    IDLE --> FAULT: sensor lost, in any state
     FAULT --> IDLE: GO pressed, sensors test OK
 ```
 
@@ -42,7 +67,9 @@ stateDiagram-v2
 - **WARNING:** the motor slows to 45 % (or stays lower) and returns to RUN only after the cause has been clear
   for 3 s.
 - **ESTOP:** the relay opens and the state is latched. GO resets to IDLE only once every cause has cleared.
-- **FAULT:** a sensor is missing, frozen or not answering; GO tests the sensors again.
+- **FAULT:** a sensor was missing at power-up (or, with the optional 12 V sense, the relay is stuck on). GO tests
+  the sensors again. A sensor lost later, while running, is an emergency stop with a `SENS_...` reason; while
+  stopped, it blocks GO.
 
 ## Limits
 
@@ -102,12 +129,13 @@ One noisy reading barely moves a fitted line, while "last minus first" would jum
 3. A 2 s watchdog restarts a frozen program (back to layer 1).
 4. Stops are latched with a first-out reason.
 5. No auto-start at power-up; GO is refused while a danger is present.
-6. Sensors are checked at start-up (lamp test, self-test) and continuously: a missing or frozen MPU6050 or a
-   failing DHT causes a FAULT, and `Wire.setWireTimeout()` stops a jammed I2C bus from freezing the loop.
+6. Sensors are checked at start-up (lamp test, self-test) and continuously: a missing MPU6050 or DHT at power-up is
+   a FAULT, a frozen MPU6050 or a failing DHT while running is an emergency stop, and `Wire.setWireTimeout()` stops
+   a jammed I2C bus from freezing the loop.
 
 ## Memory
 
-The program uses 31,880 of 32,256 bytes of flash and 1,299 of 2,048 bytes of SRAM. Fixed text lives in flash
+The program uses 31,798 of 32,256 bytes of flash and 1,299 of 2,048 bytes of SRAM. Fixed text lives in flash
 (`F()`, `PROGMEM`), and the optional INA219 current sensor and 12 V sense code are compiled out
 (`HAS_INA219 0`, `HAS_12V_DIVIDER 0`). Serial output never blocks: a row is built in a buffer and only as many
 bytes are sent as `Serial.availableForWrite()` allows, so the loop never waits for the 9600-baud line.

@@ -22,3 +22,9 @@
 - [Testing and troubleshooting](testing.md)
 - [Limitations and future work](limitations-and-future-work.md)
 - [Web dashboard](../web/README.md)
+
+## The project
+
+- [Hardware: bill of materials and photos](../hardware/README.md)
+- [Contributor labs](../labs/README.md)
+- [Contributing](../CONTRIBUTING.md) · [Roadmap](../ROADMAP.md) · [Safety notice](../SAFETY.md) · [Changelog](../CHANGELOG.md)

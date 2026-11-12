@@ -61,7 +61,8 @@ it built in, a bare 4-pin sensor needs one added.
 - **Rise rate:** a least-squares straight line through the last 15 readings (about 31 s). Its slope in °C per
   minute warns above 6 and stops above 15, catching fast heating before the level limit. One noisy reading barely
   moves a fitted line, while "last minus first" would jump.
-- Repeated failed readings put the machine into FAULT (temperature sensor).
+- No DHT at power-up puts the machine into FAULT. Three failed readings in a row while running (about 6 s) are an
+  emergency stop with the reason `SENS_TEMP` ("TEMP SENSOR ERR" on the LCD); while stopped, they block GO.
 
 ## Limitations
 
@@ -71,4 +72,4 @@ it built in, a bare 4-pin sensor needs one added.
 
 ## Test it
 
-`firmware/tests/dht_test` detects the model and prints a reading every 2 s.
+`firmware/bringup/dht_test` detects the model and prints a reading every 2 s.

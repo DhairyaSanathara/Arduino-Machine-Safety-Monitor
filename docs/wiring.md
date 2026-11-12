@@ -77,7 +77,7 @@ Not used: D0 and D1 (USB serial), D7, D12, D13, A3.
 
 ## Settings that must match your hardware
 
-At the top of `firmware/machine_safety_v2/machine_safety_v2.ino`:
+In `firmware/MachineSafetyMonitor/config.h`:
 
 | Setting | Default | Change it if |
 | --- | --- | --- |

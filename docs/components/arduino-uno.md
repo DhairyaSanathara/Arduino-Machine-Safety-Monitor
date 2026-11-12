@@ -14,7 +14,7 @@ relay, the motor driver, the LEDs, the buzzer and the LCD, and talks to the PC o
 
 | Feature | Value | Where it matters for us |
 | --- | --- | --- |
-| Flash (program) | 32 KB, 32,256 bytes usable | Our program uses 31,880 bytes |
+| Flash (program) | 32 KB, 32,256 bytes usable | Our program uses 31,798 bytes |
 | SRAM (variables) | 2 KB | We use 1,299 bytes; fixed text stays in flash with `F()` and `PROGMEM` |
 | EEPROM | 1 KB | Not used yet; could store the learned baselines |
 | Digital pins | D0 to D13, PWM on 3, 5, 6, 9, 10, 11 | Motor speed on D5 |

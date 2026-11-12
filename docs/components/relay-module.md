@@ -56,5 +56,5 @@ out the arc as the contacts open. DC never passes through zero, so the arc lasts
 
 ## Test it
 
-`firmware/tests/motor_speed` switches the relay on before driving the motor; you should hear it click and see its
+`firmware/bringup/motor_speed` switches the relay on before driving the motor; you should hear it click and see its
 LED.

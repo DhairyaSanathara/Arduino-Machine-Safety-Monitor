@@ -1,4 +1,4 @@
-# Industrial Machine Safety Monitor – website
+# Arduino Machine Safety Monitor – website
 
 ENR206 project, Ahmedabad University. Guided by Prof. Aditya Tiwari.
 Team: Dhairya Sanathara, Kaushal Chitlange, Mahi Mistry, Kavan Vyas.
@@ -18,7 +18,7 @@ Monitor or the Plotter.
 | `au_logo.png` | **Add this yourself**: the official Ahmedabad University logo (PNG, SVG or JPG named `au_logo.*`) |
 | `data/` | Created automatically. One CSV of every reading per session, plus an events file |
 
-The Arduino firmware (`machine_safety_v2.ino`) needs no changes.
+The Arduino firmware (`firmware/MachineSafetyMonitor`) needs no changes.
 
 ## One-time setup
 
