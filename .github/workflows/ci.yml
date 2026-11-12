@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  firmware-build:
+    name: Firmware compiles for Arduino Uno
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: arduino:avr:uno
+          libraries: |
+            - name: LiquidCrystal I2C
+            - name: DHT sensor library
+            - name: Adafruit Unified Sensor
+          sketch-paths: |
+            - firmware/MachineSafetyMonitor
+            - firmware/bringup
+          enable-warnings-report: true
+
+  firmware-tests:
+    name: Safety logic tests (simulated machine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C tests/firmware test
+
+  web-tests:
+    name: Web server tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r web/requirements.txt pytest pyflakes
+      - run: python -m pyflakes web tests/web
+      - run: python -m pytest tests/web -v

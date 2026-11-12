@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as the docs say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. If the problem could hurt someone (for example the motor does not stop), say so in the title.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: serial
+    attributes:
+      label: Serial output
+      description: Paste the Serial Monitor lines (9600 baud) from just before and after the problem. Type `s` for a status report.
+      render: text
+  - type: dropdown
+    id: part
+    attributes:
+      label: Part of the project
+      options:
+        - Firmware (Arduino)
+        - Web dashboard / server.py
+        - Wiring or hardware
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Your hardware
+      placeholder: "Uno R3 clone, DHT11, L298N, relay module SRD-05VDC, ..."
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Printed at start-up, e.g. "Arduino Machine Safety Monitor v2.2"

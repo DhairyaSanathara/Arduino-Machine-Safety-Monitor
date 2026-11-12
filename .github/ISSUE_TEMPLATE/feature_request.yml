@@ -1,0 +1,21 @@
+name: Feature or idea
+description: Suggest an improvement or a new sensor
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How it could work. Mention hardware, pins and flash memory if you know them (the Uno is 99 % full).
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I would like to build this myself
