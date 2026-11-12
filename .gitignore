@@ -15,3 +15,7 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Host test build output
+tests/firmware/build/
+.pytest_cache/

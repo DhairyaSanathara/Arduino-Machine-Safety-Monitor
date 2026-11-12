@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Industrial Machine Safety Monitor - local web server
+Arduino Machine Safety Monitor - local web server
 ENR206 project, Ahmedabad University
 
 What it does
@@ -85,8 +85,9 @@ class Hub:
         self.args = args
         self.lock = threading.Lock()
         self.clients = set()
-        self.rows = deque()             # (t, line, run_dt, warn_dt) of the last REPLAY_ROWS readings
-        self.events = deque(maxlen=MAX_EVENTS)   # (t, line) of every event this session
+        self.rows = deque()             # (t, seq, line, run_dt, warn_dt) of the last REPLAY_ROWS readings
+        self.events = deque(maxlen=MAX_EVENTS)   # (t, seq, line) of every event this session
+        self.seq = 0                    # arrival counter: replay keeps the exact order
         self.header = None
         self.limits = None
         self.cols = list(DEFAULT_COLS)
@@ -144,21 +145,22 @@ class Hub:
         t = now_ms()
         msg = "data: " + json.dumps({"t": t, "l": line}, separators=(",", ":")) + "\n\n"
         with self.lock:
+            self.seq += 1
             kind = line[:2]
             if kind == "D,":
                 self._store_row(t, line)
             elif kind == "E," or line.startswith((">> SELFTEST", ">> WATCHDOG_RESET")):
                 # (the board starts in readable-text mode, so its power-up self-test
                 #  arrives as ">> SELFTEST,..." before the server switches it to data)
-                self.events.append((t, line))
+                self.events.append((t, self.seq, line))
                 self._log_event(t, line)
             elif kind == "H,":
-                self.header = (t, line)
+                self.header = (t, self.seq, line)
                 cols = line.split(",")[1:]
                 if len(cols) > 5:
                     self.cols = cols
             elif kind == "L,":
-                self.limits = (t, line)
+                self.limits = (t, self.seq, line)
             self._broadcast(msg)
 
     def _store_row(self, t, line):
@@ -174,9 +176,9 @@ class Hub:
         self.prev_row_t = t
         run_dt = dt if state in ("RUN", "WARNING") else 0.0
         warn_dt = dt if state == "WARNING" else 0.0
-        self.rows.append((t, line, run_dt, warn_dt))
+        self.rows.append((t, self.seq, line, run_dt, warn_dt))
         while len(self.rows) > REPLAY_ROWS:
-            _, _, r, w = self.rows.popleft()
+            _, _, _, r, w = self.rows.popleft()
             self.evicted["rows"] += 1
             self.evicted["run_s"] += r
             self.evicted["warn_s"] += w
@@ -226,8 +228,9 @@ class Hub:
             }
             parts = ["retry: 2000\n\n", "event: hello\ndata: " + json.dumps(hello) + "\n\n"]
             fixed = sorted(x for x in (self.header, self.limits) if x)
-            replay = heapq.merge(fixed, [(t, l) for t, l, _, _ in self.rows], self.events, key=lambda x: x[0])
-            for t, line in replay:
+            replay = heapq.merge(fixed, [(t, s, l) for t, s, l, _, _ in self.rows], self.events,
+                                 key=lambda x: x[1])      # arrival order
+            for t, _, line in replay:
                 parts.append("data: " + json.dumps({"t": t, "l": line, "r": 1}, separators=(",", ":")) + "\n\n")
             parts.append("event: ready\ndata: {}\n\n")
             self.clients.add(q)
@@ -353,7 +356,7 @@ class DemoMachine:
 
     def boot(self):
         self.out("E,%d,SELFTEST,MPU6050=OK DHT22=OK INA219=not fitted 12V_SENSE=not fitted LCD=OK" % self.ms)
-        self.out("# Smart Machine Safety Monitor v2.1 (demo)")
+        self.out("# Arduino Machine Safety Monitor v2.2 (demo)")
         self.out("H," + ",".join(DEFAULT_COLS))
         self.out("L,dist_warn_cm=40,dist_stop_cm=15,temp_warn_c=40,temp_stop_c=50,rate_warn_cpm=6,"
                  "rate_stop_cpm=15,tilt_warn_deg=10,tilt_stop_deg=25")
@@ -615,7 +618,7 @@ def make_handler(hub, args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Industrial Machine Safety Monitor - local web server")
+    ap = argparse.ArgumentParser(description="Arduino Machine Safety Monitor - local web server")
     ap.add_argument("--port", help="Arduino serial port, e.g. COM11 or /dev/ttyACM0 (default: find it)")
     ap.add_argument("--http-port", type=int, default=8000, help="website port (default 8000)")
     ap.add_argument("--demo", action="store_true", help="no Arduino: run a pretend machine")
@@ -652,7 +655,7 @@ def main():
 
     url = "http://localhost:%d" % args.http_port
     print()
-    print("  Industrial Machine Safety Monitor - web server %s" % VERSION)
+    print("  Arduino Machine Safety Monitor - web server %s" % VERSION)
     print("  ------------------------------------------------------------")
     print("  On this PC (full control):   %s" % url)
     if not args.local_only:
