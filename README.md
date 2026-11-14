@@ -104,6 +104,7 @@ Windows, run `make` inside WSL, or double-click `web/start_demo.bat` for the dem
 
 | | |
 | --- | --- |
+| **Project report** | [Word (.docx)](docs/report/ENR206_Project_Report_Arduino_Machine_Safety_Monitor.docx) or [PDF](docs/report/ENR206_Project_Report_Arduino_Machine_Safety_Monitor.pdf): the full ENR206 report with theory, circuits, code and results |
 | **Demo video** | [docs/video/demo.mp4](docs/video/demo.mp4) (4 min): start-up, speed steps on the dashboard, a hand in the warning zone, the E-STOP button and the session summary |
 | **Wokwi** (runs the real firmware in the browser) | [wokwi.com/projects/480655257715515393](https://wokwi.com/projects/480655257715515393), files in [hardware/wokwi](hardware/wokwi) |
 | **Tinkercad** (breadboard wiring with a wiring-check sketch) | [hardware/tinkercad](hardware/tinkercad): screenshots, full connection list and the sketch |
@@ -399,7 +400,7 @@ solved on the way, is in [docs/testing.md](docs/testing.md).
 │   ├── firmware/                 PC simulator, Arduino library stand-ins, safety tests
 │   └── web/                      web server tests (pytest)
 ├── hardware/                     bill of materials, prototype photos, Wokwi and Tinkercad models
-├── docs/                         how every part, the firmware and the protocol work
+├── docs/                         how every part, the firmware and the protocol work; report/ and video/
 ├── labs/                         open challenges for contributors
 ├── .github/                      CI workflow, issue and pull request templates
 ├── CONTRIBUTING.md  ROADMAP.md  CHANGELOG.md  SAFETY.md  SECURITY.md  CODE_OF_CONDUCT.md
