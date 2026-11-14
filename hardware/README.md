@@ -9,6 +9,8 @@ from the front of the machine.
 | [`BOM.csv`](BOM.csv) | Bill of materials: every part, its rating, what it does and where it connects |
 | [`../docs/wiring.md`](../docs/wiring.md) | Full connection list, assembly order and checks before power-up |
 | [`../docs/components/`](../docs/components) | How each part works and why it is wired this way |
+| [`wokwi/`](wokwi) | Wokwi simulation that runs the real firmware ([open it](https://wokwi.com/projects/480655257715515393)) |
+| [`tinkercad/`](tinkercad) | Tinkercad breadboard model: screenshots, connection list and a wiring-check sketch |
 
 ## The prototype
 

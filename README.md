@@ -34,6 +34,7 @@ from it and improve it.
 - [What it protects against](#what-it-protects-against)
 - [Highlights](#highlights)
 - [Try it in two minutes, no hardware](#try-it-in-two-minutes-no-hardware)
+- [Demo video and circuit simulations](#demo-video-and-circuit-simulations)
 - [System architecture](#system-architecture)
 - [Firmware design](#firmware-design)
 - [How the controller decides](#how-the-controller-decides)
@@ -98,6 +99,18 @@ make test   # the firmware's safety tests and the web server tests
 the speed and trigger an emergency stop from the browser. `make test` compiles the real firmware for your PC and
 drives it through 17 scenarios: a person walking up, a jammed shaft, a sensor unplugged mid-run, and more. On
 Windows, run `make` inside WSL, or double-click `web/start_demo.bat` for the demo alone.
+
+## Demo video and circuit simulations
+
+| | |
+| --- | --- |
+| **Demo video** | [docs/video/demo.mp4](docs/video/demo.mp4) (4 min): start-up, speed steps on the dashboard, a hand in the warning zone, the E-STOP button and the session summary |
+| **Wokwi** (runs the real firmware in the browser) | [wokwi.com/projects/480655257715515393](https://wokwi.com/projects/480655257715515393), files in [hardware/wokwi](hardware/wokwi) |
+| **Tinkercad** (breadboard wiring with a wiring-check sketch) | [hardware/tinkercad](hardware/tinkercad): screenshots, full connection list and the sketch |
+
+| Wokwi: firmware v2.2 running | Tinkercad: breadboard model |
+| --- | --- |
+| ![Wokwi simulation](docs/images/circuit/wokwi-simulation.png) | ![Tinkercad circuit](docs/images/circuit/tinkercad-circuit.png) |
 
 ## System architecture
 
@@ -385,7 +398,7 @@ solved on the way, is in [docs/testing.md](docs/testing.md).
 ├── tests/
 │   ├── firmware/                 PC simulator, Arduino library stand-ins, safety tests
 │   └── web/                      web server tests (pytest)
-├── hardware/                     bill of materials and prototype photos
+├── hardware/                     bill of materials, prototype photos, Wokwi and Tinkercad models
 ├── docs/                         how every part, the firmware and the protocol work
 ├── labs/                         open challenges for contributors
 ├── .github/                      CI workflow, issue and pull request templates
