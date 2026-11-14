@@ -9,7 +9,7 @@
 
 // Output routing
 NullOut nullOut;
-Print* logOut = &Serial;
+Print* logOut = &Serial;        // text goes to the USB serial port unless a graph is on
 bool     textMode = OUTPUT_DEFAULT_TEXT;
 uint8_t  plotMode = 0;          // 0 = off, 1 = vibration, 2 = temperature, 3 = both
 uint32_t tPlot = 0;
@@ -28,7 +28,7 @@ DHT dht11(PIN_DHT, DHT11);
 DHT* dht = &dht22;
 uint8_t dhtModel = 0;          // 22 or 11 once found
 
-uint8_t mpuAddr = 0x68;
+uint8_t mpuAddr = 0x68;        // MPU6050 I2C address (0x69 if its AD0 pin is pulled high)
 
 // Sensor health
 bool mpuOk = false, tempOk = false;                   // found at self-test
@@ -42,11 +42,11 @@ bool mpuFail = false, tempFail = false, inaFail = false; // lost while running
 uint8_t mpuErrCount = 0, mpuStuckCount = 0, tempBadCount = 0, inaErrCount = 0;
 
 // Measurements
-float distCm = DIST_MAX_CM;
+float distCm = DIST_MAX_CM;    // start as "zone clear" until the first pings arrive
 float distRaw[3] = { DIST_MAX_CM, DIST_MAX_CM, DIST_MAX_CM };
 uint8_t distIdx = 0;
 
-float tempC = NAN;
+float tempC = NAN;             // NAN = "not a number": no reading yet
 float humidity = NAN;          // % relative humidity (bonus reading)
 float tempRate = 0;            // deg C per minute
 bool  tempRateValid = false;
@@ -68,6 +68,7 @@ float vibBase = 0, curBase = 0;
 float learnVibSum = 0, learnCurSum = 0;
 uint8_t learnVibN = 0;
 uint16_t learnCurN = 0;
+// Until a baseline is learned only the absolute vibration limit applies
 float vibWarn = VIB_ABS_STOP_MG, vibStop = VIB_ABS_STOP_MG;
 float curWarn = CUR_ABS_STOP_MA, curStop = CUR_ABS_STOP_MA;
 
@@ -96,7 +97,7 @@ uint32_t numInMs = 0;
 char     rowBuf[260];
 uint8_t  rowLen = 0, rowPos = 0;
 
-// Buttons
+// Buttons: { pin, normally-closed?, stable, last, changedMs, pressedEvent }
 Button btnGo   = { PIN_BTN_GO,    false,              false, false, 0, false };
 Button btnStop = { PIN_BTN_ESTOP, ESTOP_BUTTON_IS_NC, false, false, 0, false };
 

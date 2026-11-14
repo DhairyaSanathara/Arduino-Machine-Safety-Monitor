@@ -7,18 +7,22 @@
 #include "app.h"
 
 // ============================ 16. INPUTS ===================================
+// Debounce: a mechanical contact "bounces" (opens and closes many times) for a few
+// milliseconds when pressed. We only accept a new state once the raw reading has
+// stayed the same for DEBOUNCE_MS (25 ms). Without this, one press could count twice.
 void updateButton(Button &b, uint32_t now) {
-  bool raw = (digitalRead(b.pin) == LOW);
+  bool raw = (digitalRead(b.pin) == LOW);      // INPUT_PULLUP: pressed connects the pin to GND
   if (b.nc) raw = !raw;                       // NC contact: pressed = opens = HIGH
-  if (raw != b.last) {
+  if (raw != b.last) {                          // the contact moved: restart the 25 ms timer
     b.last = raw;
     b.changedMs = now;
-  } else if (raw != b.stable && now - b.changedMs >= DEBOUNCE_MS) {
+  } else if (raw != b.stable && now - b.changedMs >= DEBOUNCE_MS) {   // steady for 25 ms
     b.stable = raw;
-    if (raw) b.pressedEvent = true;
+    if (raw) b.pressedEvent = true;            // report the press once
   }
 }
 
+// '?' : list the commands. Lines starting with # are notes for people.
 void printHelp() {
   rowFinish();
   LOG.println(F("# Commands: g = GO (start/reset)  x = emergency stop  z = re-zero tilt"));
@@ -35,23 +39,26 @@ void setSpeed(int16_t pct) {
     LOG.println(F("# speed must be 10..100 (%). To stop: x, or the E-STOP button"));
     return;
   }
-  uint8_t p = (pct + 5) / 10 * 10;
+  uint8_t p = (pct + 5) / 10 * 10;           // round to the nearest 10: 64 -> 60, 65 -> 70
   if (p > 100) p = 100;
   if (p != speedPct) {
     speedPct = p;
     speedChangeMs = millis();                // vibration checks pause while it settles
-    selectBaseline();
+    selectBaseline();                        // switch to that speed's learned limits
   }
   logEventStart(F("SPEED"));
   LOG.print(',');
   LOG.println(speedPct);
 }
 
+// Read every character the laptop has sent (the website's server, or a person
+// typing in the Serial Monitor). Single letters are commands; digits build a number.
 void taskSerialIn() {
-  while (Serial.available() > 0) {
+  while (Serial.available() > 0) {             // bytes waiting in the receive buffer
     char c = Serial.read();
     if (c >= '0' && c <= '9') {                // digits = a new speed in %
-      numIn = (numIn < 0 ? 0 : numIn) * 10 + (c - '0');
+      numIn = (numIn < 0 ? 0 : numIn) * 10 + (c - '0');   // "6" then "0" -> 6 -> 60
+                                                         // (c - '0' turns the character into its value)
       if (numIn > 999) numIn = 999;
       numInMs = millis();
       continue;
@@ -67,7 +74,7 @@ void taskSerialIn() {
       case 'g': case 'G':
         goRequest = true;
         break;
-      case 'x': case 'X':
+      case 'x': case 'X':                      // stop from the laptop / website
         if (state != ST_ESTOP && state != ST_FAULT) enterEstop(R_REMOTE);
         break;
       case 'l': case 'L':

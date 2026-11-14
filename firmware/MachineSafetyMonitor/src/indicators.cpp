@@ -1,14 +1,18 @@
 // indicators.cpp - status LEDs and buzzer
 //
+// Every state has its own light and sound pattern, so a person can tell what the
+// machine is doing without reading the LCD.
 //
 // Part of Arduino Machine Safety Monitor - see ../MachineSafetyMonitor.ino
 
 #include "app.h"
 
 // ============================ 17. OUTPUTS ==================================
+// Called on every loop pass. Blinking is worked out from the clock, no timers needed:
+// (now / 150) % 2 flips between 0 and 1 every 150 ms -> a fast blink.
 void taskIndicators(uint32_t now) {
   bool fast = (now / 150) % 2;
-  bool slow = (now / 500) % 2;
+  bool slow = (now / 500) % 2;                 // flips every 500 ms -> a slow blink
   bool g = false, y = false, r = false, buzz = false;
 
   switch (state) {
@@ -32,6 +36,7 @@ void taskIndicators(uint32_t now) {
       buzz = (now % 3000) < 60;
       break;
   }
+  // A short beep asked for by beep() (signed difference: works across millis() wrap)
   if ((int32_t)(beepUntil - now) > 0) buzz = true;
 
   digitalWrite(PIN_LED_GREEN,  g ? HIGH : LOW);

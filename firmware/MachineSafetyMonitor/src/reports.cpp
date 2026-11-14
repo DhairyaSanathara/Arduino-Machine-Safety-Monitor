@@ -26,7 +26,8 @@ void setPlotMode(uint8_t m) {
 
 // --- The readable report for the Serial Monitor (every TEXT_MS) ---------------
 // Built in memory and sent bit by bit, like the data row, so the loop never waits.
-char* rb;
+char* rb;                                    // where the next text goes in rowBuf
+// bTxt adds fixed text, bNum a number ("--" if there is no reading), bNl a new line
 void bTxt(const __FlashStringHelper* t) { strcpy_P(rb, (PGM_P)t); rb += strlen(rb); }
 void bNum(float v, uint8_t dec) {
   if (isnan(v)) { *rb++ = '-'; *rb++ = '-'; *rb = 0; return; }
@@ -34,6 +35,11 @@ void bNum(float v, uint8_t dec) {
 }
 void bNl() { *rb++ = '\r'; *rb++ = '\n'; }
 
+// Example of one report:
+//   --- RUN | speed 60% (set 60%) | ALL OK
+//   Temperature : 27.4 C (warn 40 / stop 50), rising 0.30 C/min
+//   Vibration   : 35.5 mg (warn 71 / stop 123)
+//   Distance    : clear   Tilt: 0.4 deg   Humidity: 52 %
 void textReport() {
   uint8_t reason = (state == ST_ESTOP || state == ST_FAULT) ? latchedReason : worstReason;
   rb = rowBuf;
@@ -58,6 +64,7 @@ void textReport() {
   rowPump();
 }
 
+// One "Name:value" pair for the Serial Plotter; the last one on a line ends the line.
 void plotPair(const __FlashStringHelper* name, float v, uint8_t dec, bool last) {
   Serial.print(name);
   Serial.print(':');
@@ -66,6 +73,7 @@ void plotPair(const __FlashStringHelper* name, float v, uint8_t dec, bool last) 
   else Serial.println();
 }
 
+// Send the graph values 4 times a second (once a second for temperature).
 void taskPlot(uint32_t now) {
   if (!plotMode) return;
   if (now - tPlot < (plotMode == 2 ? 1000 : 250)) return;   // temperature changes slowly

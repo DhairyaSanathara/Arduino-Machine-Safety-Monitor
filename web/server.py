@@ -26,6 +26,21 @@ Close the Arduino IDE's Serial Monitor and Serial Plotter first: only one
 program can use the USB port at a time.
 """
 
+# HOW THE PIECES FIT TOGETHER
+#
+#   Arduino --USB serial--> serial_worker() --publish()--> Hub --queue--> stream() --> browser
+#   (one text line                (a thread that              (stores, logs CSV,   (Server-Sent Events:
+#    every 0.5 s)                  reads the port)             fans out to every     one long HTTP reply
+#                                                              open browser)          that never ends)
+#
+#   browser --POST /api/cmd--> do_POST() --checks--> hub.send() --> "x\n" on the USB port --> Arduino
+#
+# Three threads run at the same time:
+#   1. the main thread: the web server, which starts one more thread per browser request
+#   2. serial_worker (or DemoMachine.run with --demo): reads the Arduino
+#   3. the browser threads, each waiting on its own queue in stream()
+# Shared data in the Hub is protected by self.lock so two threads never change it at once.
+
 import argparse
 import heapq
 import json
@@ -61,18 +76,20 @@ DEFAULT_COLS = ("ms,state,reason,dist_cm,temp_c,temp_rate_cpm,vib_mg,tilt_deg,cu
 
 # Commands the website may send. Output-mode commands (n, v, t, b) are kept for the
 # server itself: they would switch the Arduino away from the data the website reads.
-CMD_OK = re.compile(r"^(?:[gxzlsd+\-]|\d{1,3})$")
-STOP_ONLY = {"x"}
+CMD_OK = re.compile(r"^(?:[gxzlsd+\-]|\d{1,3})$")   # one allowed letter, or a number up to 3 digits
+STOP_ONLY = {"x"}                                    # all that a remote viewer (phone) may send
 CMD_TEXT = {"g": "Start / reset", "x": "Emergency stop", "z": "Re-zero tilt", "l": "Re-learn vibration",
             "s": "Status report", "d": "Data mode", "+": "Speed +10 %", "-": "Speed -10 %"}
 
 USB_IDS = {0x2341, 0x2A03, 0x1A86, 0x0403, 0x10C4}   # Arduino, Arduino.org, CH340, FTDI, CP210x
 
 
+# Print a time-stamped message in the server window.
 def say(msg):
     print(time.strftime("[%H:%M:%S] ") + msg, flush=True)
 
 
+# Wall-clock time in milliseconds (used to time-stamp every line).
 def now_ms():
     return int(time.time() * 1000)
 
@@ -83,17 +100,17 @@ class Hub:
 
     def __init__(self, args):
         self.args = args
-        self.lock = threading.Lock()
-        self.clients = set()
+        self.lock = threading.Lock()    # only one thread at a time may change the Hub
+        self.clients = set()            # one queue per open browser
         self.rows = deque()             # (t, seq, line, run_dt, warn_dt) of the last REPLAY_ROWS readings
         self.events = deque(maxlen=MAX_EVENTS)   # (t, seq, line) of every event this session
         self.seq = 0                    # arrival counter: replay keeps the exact order
-        self.header = None
-        self.limits = None
-        self.cols = list(DEFAULT_COLS)
+        self.header = None              # the Arduino's latest H line (column names)
+        self.limits = None              # ...and L line (limits), replayed to new viewers
+        self.cols = list(DEFAULT_COLS)  # column names, replaced by the H line when it arrives
         self.prev_row_t = None
-        self.evicted = {"rows": 0, "run_s": 0.0, "warn_s": 0.0}
-        self.peaks = {"temp_c": None, "vib_mg": None, "dist_cm": None}
+        self.evicted = {"rows": 0, "run_s": 0.0, "warn_s": 0.0}   # totals of rows too old to replay
+        self.peaks = {"temp_c": None, "vib_mg": None, "dist_cm": None}   # whole-session extremes
         self.status = {"connected": False, "port": None, "message": "Starting"}
         self.started = now_ms()
         self.last_row_mono = 0.0
@@ -104,6 +121,8 @@ class Hub:
         self._open_logs()
 
     # ------------------------------------------------------------- session files
+    # One CSV file of readings and one text file of events per run of the server,
+    # in web/data/, named after the date and time it started.
     def _open_logs(self):
         if self.args.no_log:
             return
@@ -115,11 +134,12 @@ class Hub:
         self.csv.write("time,epoch_ms," + ",".join(self.cols) + "\n")
         self.ev_file = open(os.path.join(folder, "session_%s_events.txt" % stamp), "w", encoding="utf-8")
 
+    # One CSV line: readable time, epoch ms, then the Arduino's values unchanged.
     def _log_row(self, t, values):
         if self.csv:
             stamp = datetime.fromtimestamp(t / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             self.csv.write("%s,%d,%s\n" % (stamp, t, ",".join(values)))
-            self.csv.flush()
+            self.csv.flush()            # write to disk now: nothing lost if the PC crashes
 
     def _log_event(self, t, text):
         if self.ev_file:
@@ -127,6 +147,8 @@ class Hub:
             self.ev_file.flush()
 
     # ------------------------------------------------------------- broadcasting
+    # Put a message into every browser's queue. Each browser's stream() thread takes
+    # it out and sends it. Called with self.lock held.
     def _broadcast(self, msg):
         dead = []
         for q in self.clients:
@@ -143,10 +165,12 @@ class Hub:
         if not line:
             return
         t = now_ms()
+        # Server-Sent Events format: "data: <text>" followed by a blank line.
+        # The text is JSON: {"t": time in ms, "l": the Arduino's line}
         msg = "data: " + json.dumps({"t": t, "l": line}, separators=(",", ":")) + "\n\n"
         with self.lock:
-            self.seq += 1
-            kind = line[:2]
+            self.seq += 1               # arrival number, so replays keep the exact order
+            kind = line[:2]             # the first letter says what the line is: D, E, H or L
             if kind == "D,":
                 self._store_row(t, line)
             elif kind == "E," or line.startswith((">> SELFTEST", ">> WATCHDOG_RESET")):
@@ -163,12 +187,13 @@ class Hub:
                 self.limits = (t, self.seq, line)
             self._broadcast(msg)
 
+    # A D row: keep it for replay, add up running time, track peaks, write the CSV.
     def _store_row(self, t, line):
-        values = line.split(",")[1:]
+        values = line.split(",")[1:]    # drop the "D", keep the values
         if len(values) < 10:
             return
         self.last_row_mono = time.monotonic()
-        row = dict(zip(self.cols, values))
+        row = dict(zip(self.cols, values))   # pair names with values: {"temp_c": "30.00", ...}
         state = row.get("state", "")
         dt = 0.0
         if self.prev_row_t is not None:
@@ -177,7 +202,7 @@ class Hub:
         run_dt = dt if state in ("RUN", "WARNING") else 0.0
         warn_dt = dt if state == "WARNING" else 0.0
         self.rows.append((t, self.seq, line, run_dt, warn_dt))
-        while len(self.rows) > REPLAY_ROWS:
+        while len(self.rows) > REPLAY_ROWS:   # keep only the newest ~6 minutes
             _, _, _, r, w = self.rows.popleft()
             self.evicted["rows"] += 1
             self.evicted["run_s"] += r
@@ -191,6 +216,7 @@ class Hub:
             pass
         self._log_row(t, values)
 
+    # Keep the highest (pick=max) or lowest (pick=min) value of the session.
     def _peak(self, key, text, pick):
         try:
             v = float(text)
@@ -201,6 +227,7 @@ class Hub:
         cur = self.peaks[key]
         self.peaks[key] = v if cur is None else pick(cur, v)
 
+    # Arduino connected / lost: tell every browser (the "status" event) and the console.
     def set_status(self, connected, port, message):
         with self.lock:
             changed = (connected, port, message) != (self.status["connected"], self.status["port"], self.status["message"])
@@ -210,6 +237,7 @@ class Hub:
         if changed:
             say(message)
 
+    # Tell every browser who sent which command (shown in the event log).
     def note_command(self, cmd, who):
         info = {"t": now_ms(), "cmd": cmd, "who": who}
         with self.lock:
@@ -217,6 +245,9 @@ class Hub:
         self._log_event(info["t"], "COMMAND %s from %s" % (cmd, who))
 
     # ------------------------------------------------------------- viewers
+    # A new browser connected to /api/stream. Give it a queue, and build its first
+    # message: a "hello" with session info, then the history (header, limits, the
+    # last ~6 min of rows and all events) in the order they arrived, then "ready".
     def subscribe(self, can_control):
         q = queue.Queue(maxsize=4000)
         with self.lock:
@@ -237,11 +268,13 @@ class Hub:
             self._broadcast("event: viewers\ndata: %d\n\n" % len(self.clients))
         return q, "".join(parts)
 
+    # A browser closed the page.
     def unsubscribe(self, q):
         with self.lock:
             self.clients.discard(q)
             self._broadcast("event: viewers\ndata: %d\n\n" % len(self.clients))
 
+    # Send a command to the Arduino (or the demo machine). False if it is not connected.
     def send(self, cmd):
         w = self.writer
         if not w:
@@ -255,6 +288,8 @@ class Hub:
 
 
 # ======================================================================== the Arduino
+# Find the Arduino's port: first by its USB chip's vendor ID or name, otherwise the
+# only serial port there is. Returns e.g. "COM11" or "/dev/ttyACM0", or None.
 def find_arduino():
     ports = list(serial.tools.list_ports.comports())
     known = [p for p in ports if p.vid in USB_IDS or re.search(r"arduino|ch340|usb.serial|usb-serial", (p.description or ""), re.I)]
@@ -265,6 +300,8 @@ def find_arduino():
     return usable[0].device if len(usable) == 1 else None
 
 
+# The thread that owns the USB port. It loops forever: find the port, open it,
+# read lines and publish them; if the cable is pulled, wait and try again.
 def serial_worker(hub, args, stop):
     while not stop.is_set():
         port = args.port or find_arduino()
@@ -273,7 +310,7 @@ def serial_worker(hub, args, stop):
             stop.wait(2)
             continue
         try:
-            ser = serial.Serial(port, BAUD, timeout=0.2, write_timeout=1)
+            ser = serial.Serial(port, BAUD, timeout=0.2, write_timeout=1)   # 9600 baud, like the Arduino
         except (serial.SerialException, OSError) as e:
             text = str(e)
             if re.search(r"denied|busy|in use|PermissionError|Errno 16", text, re.I):
@@ -285,9 +322,9 @@ def serial_worker(hub, args, stop):
 
         wlock = threading.Lock()
 
-        def write(cmd, ser=ser):
+        def write(cmd, ser=ser):                          # used by hub.send() for commands
             with wlock:
-                ser.write((cmd + "\n").encode("ascii"))
+                ser.write((cmd + "\n").encode("ascii"))   # e.g. "x\n" = emergency stop
 
         hub.writer = write
         opened = time.monotonic()
@@ -297,12 +334,12 @@ def serial_worker(hub, args, stop):
         buf = b""
         try:
             while not stop.is_set():
-                chunk = ser.read(256)
+                chunk = ser.read(256)          # whatever bytes arrived (waits at most 0.2 s)
                 if chunk:
                     buf += chunk
-                    while b"\n" in buf:
+                    while b"\n" in buf:         # cut the bytes into complete lines
                         raw, buf = buf.split(b"\n", 1)
-                        hub.publish(raw.decode("utf-8", "replace"))
+                        hub.publish(raw.decode("utf-8", "replace"))   # one line -> every browser
                     if len(buf) > 4000:
                         buf = b""
                 # The Arduino starts in readable-text mode (for the Serial Monitor) and
@@ -330,6 +367,7 @@ def serial_worker(hub, args, stop):
 
 
 # ===================================================================== demo machine
+# Used with --demo: lets you practise with the website without the hardware.
 class DemoMachine:
     """A pretend machine that prints exactly what the real firmware prints in data mode."""
 
@@ -470,6 +508,7 @@ class DemoMachine:
 
 
 # ========================================================================= web server
+# This PC's addresses on the local network, so phones know what to open.
 def local_ips():
     ips = []
     try:
@@ -493,6 +532,13 @@ TYPES = {".png": "image/png", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".j
          ".webp": "image/webp", ".html": "text/html; charset=utf-8", ".ico": "image/x-icon"}
 
 
+# The web server's request handler. Python's http.server calls do_GET / do_POST
+# for every request a browser makes. The URLs:
+#   GET  /             the page (index.html)
+#   GET  /api/info     a few facts: demo or real, may this viewer control?
+#   GET  /api/stream   the live stream of Arduino lines (Server-Sent Events)
+#   GET  /api/csv      download this session's CSV file
+#   POST /api/cmd      send a command, body {"cmd": "x"}
 def make_handler(hub, args):
     class Handler(BaseHTTPRequestHandler):
         server_version = "MachineSafetyMonitor/" + VERSION
@@ -502,6 +548,9 @@ def make_handler(hub, args):
             if args.verbose:
                 say("%s %s" % (self.client_address[0], fmt % a))
 
+        # The lab PC = a request from this same computer (127.0.0.1, "localhost").
+        # Requests that came through a tunnel or proxy carry a forwarding header,
+        # so they are treated as remote even though they arrive from localhost.
         def is_lab_pc(self):
             ip = self.client_address[0]
             forwarded = any(h in self.headers for h in ("X-Forwarded-For", "Forwarded", "CF-Connecting-IP", "X-Real-IP"))
@@ -510,6 +559,7 @@ def make_handler(hub, args):
         def can_control(self):
             return args.allow_remote_control or self.is_lab_pc()
 
+        # Send a complete HTTP reply: status code, headers, body.
         def reply(self, code, body, ctype="application/json", extra=None):
             data = body if isinstance(body, bytes) else body.encode("utf-8")
             self.send_response(code)
@@ -563,6 +613,10 @@ def make_handler(hub, args):
                 return self.reply(204, b"", "image/x-icon")
             return self.reply(404, "not found", "text/plain")
 
+        # A command from a browser. Three checks before anything reaches the Arduino:
+        #   1. is it on the allowed list?           no -> 400
+        #   2. may this viewer send it?             a phone sending anything but x -> 403
+        #   3. is the Arduino connected?            no -> 503
         def do_POST(self):
             if urlparse(self.path).path != "/api/cmd":
                 return self.reply(404, json.dumps({"ok": False, "error": "not found"}))
@@ -583,6 +637,9 @@ def make_handler(hub, args):
                 say("Command %r from %s" % (cmd, who))
             return self.reply(200, json.dumps({"ok": True}))
 
+        # Server-Sent Events: answer with Content-Type text/event-stream and never
+        # finish the reply. Every new Arduino line is written into the open
+        # connection, and the browser's EventSource receives it as a message.
         def stream(self):
             q, first = hub.subscribe(self.can_control())
             try:
@@ -597,7 +654,7 @@ def make_handler(hub, args):
                 self.wfile.flush()
                 while True:
                     try:
-                        msg = q.get(timeout=15)
+                        msg = q.get(timeout=15)            # wait for the next line
                         batch = [msg]
                         while len(batch) < 200:
                             try:
@@ -605,8 +662,8 @@ def make_handler(hub, args):
                             except queue.Empty:
                                 break
                         out = "".join(batch)
-                    except queue.Empty:
-                        out = ": keep-alive\n\n"
+                    except queue.Empty:                    # 15 s of silence: send a comment
+                        out = ": keep-alive\n\n"            # so the connection is not dropped
                     self.wfile.write(out.encode("utf-8"))
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
@@ -617,6 +674,8 @@ def make_handler(hub, args):
     return Handler
 
 
+# Start-up: read the options, start the Arduino (or demo) thread, start the web
+# server on port 8000, open the browser, and run until Ctrl+C.
 def main():
     ap = argparse.ArgumentParser(description="Arduino Machine Safety Monitor - local web server")
     ap.add_argument("--port", help="Arduino serial port, e.g. COM11 or /dev/ttyACM0 (default: find it)")
@@ -645,7 +704,7 @@ def main():
     else:
         worker = threading.Thread(target=serial_worker, args=(hub, args, stop), daemon=True)
 
-    host = "127.0.0.1" if args.local_only else "0.0.0.0"
+    host = "127.0.0.1" if args.local_only else "0.0.0.0"   # 0.0.0.0 = also reachable from phones on the Wi-Fi
     try:
         httpd = ThreadingHTTPServer((host, args.http_port), make_handler(hub, args))
     except OSError as e:

@@ -1,4 +1,14 @@
 <!doctype html>
+<!--
+  Arduino Machine Safety Monitor - the dashboard page
+  One file, three parts:
+    style block   CSS: colours, layout, night / day mode, phone layout
+    body          HTML: the page's boxes (state banner, tiles, charts, log, buttons)
+    script block  JavaScript (at the end): receives the Arduino's lines, turns them
+                  into numbers, updates the tiles, draws the charts, sends commands
+  It is served by server.py (http://localhost:8000). Opened directly as a file in
+  Chrome / Edge it can also talk to the Arduino over USB itself (Web Serial).
+-->
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
@@ -511,8 +521,18 @@ footer li { margin: 2px 0; }
 </footer>
 
 <script>
+// HOW THIS SCRIPT WORKS (follow one Arduino line through it)
+//   boot()          on page load: is server.py there? -> startServer()
+//   startServer()   opens new EventSource("/api/stream"): the server pushes lines
+//   ingest(line)    splits "D,9205,RUN,..." at the commas, looks at the first letter
+//   onRow(values)   pairs values with the H line's column names -> one row object
+//   queueDraw()     asks the browser to redraw at its next frame
+//   render()        updates the state banner, tiles, checks, counters and charts
+//   send("x")       a button press: POST /api/cmd to server.py -> Arduino
+// Everything lives inside (() => { ... })(): a function that runs at once, so none
+// of these names clash with anything else in the browser.
 (() => {
-  "use strict";
+  "use strict";                        // stricter JavaScript: typos become errors
 
   // =================================================================== constants
   const DEFAULT_COLS = ["ms","state","reason","dist_cm","temp_c","temp_rate_cpm","vib_mg","tilt_deg",
@@ -550,14 +570,16 @@ footer li { margin: 2px 0; }
   ];
 
   // ======================================================================= state
+  // S = everything the page knows: connection mode, column names, limits,
+  // every row received (S.rows), the event log and the session counters.
   const S = {
     mode: "none",                      // server | usb | demo | none
     canControl: false,
     cols: DEFAULT_COLS.slice(),
     limits: { dist_warn_cm: 40, dist_stop_cm: 15, temp_warn_c: 40, temp_stop_c: 50,
               rate_warn_cpm: 6, rate_stop_cpm: 15, tilt_warn_deg: 10, tilt_stop_deg: 25 },
-    rows: [],
-    log: [],
+    rows: [],                          // one object per D row: { t, ms, state, dist_cm, temp_c, ... }
+    log: [],                           // the event log shown on the page
     st: null,
     sessionStart: Date.now(),
     evState: null,                     // last state seen in an event (for counting)
@@ -581,10 +603,10 @@ footer li { margin: 2px 0; }
   try { const v = +localStorage.getItem("msm-rated-rpm"); if (v >= 10 && v <= 20000) S.ratedRpm = v; } catch (_) {}
 
   // ===================================================================== helpers
-  const $ = id => document.getElementById(id);
-  const num = s => { const v = parseFloat(s); return Number.isFinite(v) ? v : NaN; };
-  const ok = v => typeof v === "number" && Number.isFinite(v);
-  const fmt = (v, d) => ok(v) ? v.toFixed(d) : "–";
+  const $ = id => document.getElementById(id);           // shortcut: $("speed") = the element with id="speed"
+  const num = s => { const v = parseFloat(s); return Number.isFinite(v) ? v : NaN; };   // text -> number ("nan" -> NaN)
+  const ok = v => typeof v === "number" && Number.isFinite(v);                          // is it a real number?
+  const fmt = (v, d) => ok(v) ? v.toFixed(d) : "–";                                     // number -> text with d decimals
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const hms = t => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -603,6 +625,8 @@ footer li { margin: 2px 0; }
   const worst = (...l) => l.includes("crit") ? "crit" : l.includes("warn") ? "warn" : l.includes("good") ? "good" : "none";
 
   // ===================================================================== tiles
+  // The seven value tiles are created here from this list (not written out in the HTML),
+  // and T[id] keeps a handle on each part of a tile so render can update it quickly.
   const TILES = [
     { id: "speed", title: "Motor speed", unit: "%" },
     { id: "rpm",   title: "Shaft speed", unit: "RPM" },
@@ -662,6 +686,8 @@ footer li { margin: 2px 0; }
 
   // ===================================================================== charts
   // One measure per chart, one y-axis, 2 px lines. Limit lines in amber / red.
+  // Drawn by hand on an HTML <canvas> (no chart library): each frame clears the
+  // canvas and draws the grid, the limit lines and the data line again.
   class TimeChart {
     constructor(id, cfg) {
       this.c = $("c" + id); this.tip = $("tip" + id); this.empty = $("empty" + id); this.cfg = cfg;
@@ -681,6 +707,8 @@ footer li { margin: 2px 0; }
       const out = []; for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(+v.toFixed(6));
       return out;
     }
+    // The rows inside the time window (1, 2 or 5 minutes). Rows are in time order,
+    // so a binary search finds the first one quickly even with thousands of rows.
     points() {
       const rows = S.rows; if (!rows.length) return [];
       const tEnd = rows[rows.length - 1].t, from = tEnd - S.win;
@@ -699,8 +727,10 @@ footer li { margin: 2px 0; }
       this.empty.style.display = pts.length ? "none" : "grid";
       if (!pts.length) return;
 
-      const P = this.pad, x0 = P.l, x1 = W - P.r, y0 = P.t, y1 = H - P.b;
+      const P = this.pad, x0 = P.l, x1 = W - P.r, y0 = P.t, y1 = H - P.b;   // the plot area in pixels
       const tEnd = pts[pts.length - 1].t, tStart = tEnd - S.win;
+      // X(time) and Y(value) turn data into pixel positions. Y is flipped because
+      // canvas y grows downwards but bigger values should be higher up.
       const X = t => x0 + (t - tStart) / S.win * (x1 - x0);
       const [ymin, ymax] = cfg.range(pts);
       const Y = v => y1 - (Math.min(Math.max(v, ymin), ymax) - ymin) / (ymax - ymin) * (y1 - y0);
@@ -790,6 +820,7 @@ footer li { margin: 2px 0; }
     }
   }
 
+  // The three charts: what to plot, the limit lines, and the y range for each.
   const vibChart = new TimeChart("Vib", {
     series: [{ label: "Vibration", color: "--series", get: p => p.vib_mg }],
     refs: pts => { const l = pts[pts.length - 1]; if (!learned(l)) return [];
@@ -826,14 +857,18 @@ footer li { margin: 2px 0; }
   const charts = [vibChart, tempChart, rpmChart];
 
   // ================================================================== rendering
+  // Rows can arrive faster than the screen refreshes. queueDraw() only asks for ONE
+  // redraw at the browser's next frame (requestAnimationFrame), however many rows came in.
   let queued = false;
   function queueDraw() {
     if (queued) return; queued = true;
     requestAnimationFrame(() => { queued = false; render(); });
   }
 
+  // No row for 5 s while connected = the data is old (shown on the page as "stale").
   function stale() { return S.mode !== "none" && S.rows.length && Date.now() - S.lastArrival > STALE_MS; }
 
+  // Redraw everything from S.
   function render() {
     charts.forEach(c => c.draw());
     renderState(); renderTiles(); renderChecks(); renderStats(); renderHealth(); renderTable(); renderControls();
@@ -883,8 +918,10 @@ footer li { margin: 2px 0; }
     }
   }
 
+  // The seven tiles show the LATEST row; each gets a level (normal / warning / stop)
+  // by comparing its value with the limits.
   function renderTiles() {
-    const r = S.rows[S.rows.length - 1];
+    const r = S.rows[S.rows.length - 1];        // the newest row
     if (!r) { for (const d of TILES) setTile(d.id, { sub: d.id === "rpm" ? undefined : "" }); return; }
     const L = S.limits;
 
@@ -1058,6 +1095,9 @@ footer li { margin: 2px 0; }
     logDirty = true; queueLog(); queueDraw();
   }
 
+  // Every line from the Arduino arrives here, whatever the connection (server, USB, demo).
+  // t = arrival time in ms. The first field says what kind of line it is:
+  //   H = column names   L = limits   D = a row of readings   E = an event
   function ingest(t, line) {
     line = String(line).replace(/\r/g, "").trim(); if (!line) return;
     addSerial(t, line);
@@ -1078,12 +1118,15 @@ footer li { margin: 2px 0; }
     }
   }
 
+  // A D row: build an object such as { t, ms: 9205, state: "RUN", dist_cm: 120, temp_c: 30, ... }
+  // using the column names from the H line, update the session counters, store it.
   function onRow(t, vals) {
-    if (vals.length < 10) return;
+    if (vals.length < 10) return;               // a broken / partial line: ignore it
     const r = { t };
     S.cols.forEach((n, i) => { r[n] = (n === "state" || n === "reason") ? vals[i] : num(vals[i]); });
     if (!ok(r.speed_now_pct)) r.speed_now_pct = r.pwm > PWM_MIN ? (r.pwm - PWM_MIN) * 100 / (255 - PWM_MIN) : 0;
     if (!ok(r.pwm)) r.pwm = pctToPwm(r.speed_now_pct);
+    // The Arduino's clock (ms) went backwards = it restarted
     if (S.lastMs >= 0 && r.ms < S.lastMs - 2000) { addLog(t, "The Arduino restarted.", "warn"); S.evState = null; }
     S.lastMs = r.ms;
     const prev = S.rows[S.rows.length - 1];
@@ -1101,6 +1144,8 @@ footer li { margin: 2px 0; }
     queueDraw();
   }
 
+  // An E line, e.g. E,12222,STATE,WARNING,PROX -> type "STATE", rest ["WARNING", "PROX"].
+  // Counts starts / stops / warnings and writes a plain-English entry in the event log.
   function onEvent(t, type, rest) {
     const arg = rest.join(",");
     if (type === "STATE") {
@@ -1155,6 +1200,10 @@ footer li { margin: 2px 0; }
   }
   function commandName(c) { return /^\d+$/.test(c) ? `speed ${c} %` : CMD_TEXT[c] || c; }
 
+  // Send a command ("g", "x", "60" ...) the right way for the current connection:
+  //   server -> HTTP POST to /api/cmd (server.py checks it and writes it to the USB port)
+  //   demo   -> straight to the pretend machine
+  //   usb    -> written to the serial port by the browser itself (Web Serial)
   async function send(cmd) {
     cmd = String(cmd).trim().toLowerCase(); if (!cmd) return;
     if (S.mode === "server") {
@@ -1175,6 +1224,13 @@ footer li { margin: 2px 0; }
   }
 
   // ---------------------------------------------------------------- server (SSE)
+  // EventSource = the browser's built-in receiver for Server-Sent Events. It keeps one
+  // HTTP connection open; server.py writes each Arduino line into it. If the connection
+  // drops it reconnects by itself after 2 s. Message types used:
+  //   (no name)  one Arduino line -> ingest()
+  //   hello      session info for a new viewer      status   Arduino connected / lost
+  //   cmd        someone sent a command             viewers  how many pages are open
+  //   ready      the history replay is complete
   let es = null;
   function startServer(info) {
     S.mode = "server"; S.canControl = !!info.can_control;
@@ -1216,6 +1272,8 @@ footer li { margin: 2px 0; }
   }
 
   // ---------------------------------------------------------------- USB (Web Serial)
+  // Used when the page is opened as a file, without server.py. Chrome and Edge can
+  // open a serial port themselves (Web Serial API) after the user picks the port.
   let port = null, reader = null, askTimer = null;
   async function connectUsb() {
     if (!("serial" in navigator)) { $("noSerial").hidden = false; return; }
@@ -1231,6 +1289,7 @@ footer li { margin: 2px 0; }
     }, 2500);
     readUsb();
   }
+  // Read bytes from the port, cut them into lines at "\n", and ingest() each line.
   async function readUsb() {
     const dec = new TextDecoder(); let buf = "";
     try {
@@ -1383,6 +1442,8 @@ footer li { margin: 2px 0; }
   // ===================================================================== start-up
   rpmSubDefault();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => queueDraw());
+  // Start-up: if the page came from server.py, ask /api/info and connect to the live
+  // stream. Otherwise (opened as a file) show the "Connect USB" and "Demo" buttons.
   async function boot() {
     if (location.protocol.startsWith("http")) {
       try {

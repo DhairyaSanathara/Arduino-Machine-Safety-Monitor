@@ -16,19 +16,24 @@
 //   a DHT22 read as a DHT11 gives a temperature below 3 C (impossible indoors)
 // Each sensor answers at most once every 2 s, and needs ~2 s after power-up.
 // Waits are chopped into 100 ms pieces so the watchdog stays happy.
+// delay() that keeps feeding the watchdog (only used during the power-up self-test).
 void waitFed(uint16_t ms) {
   for (uint16_t i = 0; i < ms; i += 100) { delay(100); wdt_reset(); }
 }
 
+// Read the sensor as model 11 or 22 and say whether the numbers make sense.
+// t and h are passed "by reference" (&), so the function fills in the caller's variables.
 bool readDhtAs(uint8_t model, float& t, float& h) {
   DHT& s = (model == 11) ? dht11 : dht22;
-  t = s.readTemperature(false, true);
-  h = s.readHumidity();
-  if (isnan(t) || isnan(h) || h > 100.5) return false;
+  t = s.readTemperature(false, true);      // (false = Celsius, true = force a fresh reading)
+  h = s.readHumidity();                    // from the same reading, no second wait
+  if (isnan(t) || isnan(h) || h > 100.5) return false;   // no answer, or humidity over 100 %
   if (model == 11) return t >= 3 && t <= 60;
   return t > -40 && t < 80;
 }
 
+// Find the sensor at power-up: try one model, then the other, up to 4 attempts.
+// On success it also stores the first reading as the start of the temperature trend.
 bool initTempSensor() {
   dht22.begin();
   dht11.begin();

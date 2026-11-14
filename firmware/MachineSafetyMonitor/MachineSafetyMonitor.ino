@@ -97,14 +97,20 @@
  * ===========================================================================
  */
 
-#include "src/app.h"
+#include "src/app.h"   // every module, setting and shared variable comes in through this one file
 
+// setup() runs ONCE after power-up or a reset. Order matters: outputs are made
+// safe first, then communication starts, then the sensors are checked, and only
+// then is the machine allowed to wait for GO.
 void setup() {
-  uint8_t resetCause = MCUSR;
-  MCUSR = 0;
-  wdt_disable();
+  uint8_t resetCause = MCUSR;   // MCUSR = the chip's "why did I reset?" register
+  MCUSR = 0;                    // clear it, so the next reset reports its own cause
+  wdt_disable();                // after a watchdog reset the watchdog is still running:
+                                // switch it off now, or it would reset us again mid-setup
 
   // 1. Every output to its SAFE state before anything else
+  // digitalWrite BEFORE pinMode: the pin's output level is chosen while it is still
+  // an input, so the relay can never click ON for a moment when the pin becomes an output.
   digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);   // relay OFF
   pinMode(PIN_RELAY, OUTPUT);
   relayOn = false;
@@ -112,7 +118,7 @@ void setup() {
 #ifdef PIN_MOTOR_EN2
   pinMode(PIN_MOTOR_EN2, OUTPUT);
 #endif
-  motorStopNow();
+  motorStopNow();                           // PWM 0 on ENA: motor driver outputs off
   pinMode(PIN_BUZZER, OUTPUT);
   setBuzzer(false);
   pinMode(PIN_LED_GREEN, OUTPUT);
@@ -123,36 +129,40 @@ void setup() {
   if (USE_12V_SENSE) pinMode(PIN_12V_SENSE, INPUT);   // set USE_12V_SENSE false to reuse A3
   pinMode(PIN_BTN_GO, INPUT_PULLUP);        // button to GND, no resistor needed
   pinMode(PIN_BTN_ESTOP, INPUT_PULLUP);
+  // Hardware interrupt: the chip itself watches D3 and jumps to onEstopInterrupt()
+  // (motor.cpp) the instant the button is pressed, even in the middle of other code.
   attachInterrupt(digitalPinToInterrupt(PIN_BTN_ESTOP), onEstopInterrupt,
                   ESTOP_BUTTON_IS_NC ? RISING : FALLING);   // the moment it is pressed
+                  // FALLING = the pin goes from HIGH (pull-up) to LOW (pressed to GND)
 
   // 2. Communication
-  Serial.begin(SERIAL_BAUD);
-  Wire.begin();
+  Serial.begin(SERIAL_BAUD);                // USB serial to the laptop, 9600 bits per second
+  Wire.begin();                             // I2C bus on A4 (SDA) / A5 (SCL): LCD + MPU6050
   initLCD();                                // (its init() restarts Wire, so set options after)
-  Wire.setClock(100000);
+  Wire.setClock(100000);                    // 100 kHz "standard mode": robust on long jumper wires
   Wire.setWireTimeout(25000, true);         // a noisy I2C bus can never freeze the loop
                                             // (compile error here? update "Arduino AVR Boards")
 
   // 3. Lamp test and sensor self-test
-  lampTest();
-  selfTest();
-  printHeader();
-  if (resetCause & _BV(WDRF)) {
+  lampTest();                               // every LED and the buzzer on briefly (indicators.cpp)
+  selfTest();                               // find the MPU6050, DHT and LCD (self_test.cpp)
+  printHeader();                            // first lines on the Serial Monitor (datalog.cpp)
+  if (resetCause & _BV(WDRF)) {             // WDRF bit set = the watchdog caused this reset
     logEventStart(F("WATCHDOG_RESET"));
     LOG.println();
   }
 
   // 4. Start in IDLE (never auto-start), or FAULT if a required sensor is missing
-  uint32_t now = millis();
+  uint32_t now = millis();                  // milliseconds since power-up
   relayChangeMs = now;
-  tPing = tIna = tLogic = tLog = tLcd = tLcdPage = tMotor = now;
-  tSampleUs = micros();
+  tPing = tIna = tLogic = tLog = tLcd = tLcdPage = tMotor = now;   // start every task timer now
+  tSampleUs = micros();                     // the vibration sampler counts in microseconds
   if (!mpuOk)     enterFault(R_SENS_MPU);
   else if (!tempOk) enterFault(R_SENS_TEMP);
   else            enterIdle();
 
-  if (USE_WATCHDOG) wdt_enable(WDTO_2S);
+  if (USE_WATCHDOG) wdt_enable(WDTO_2S);    // from now on loop() must call wdt_reset() at least
+                                            // every 2 s, or the chip resets itself
 }
 
 // =============================== 19. LOOP ==================================
@@ -166,30 +176,35 @@ void loop() {
     estopIrq = false;                       // (one byte: reading/clearing is atomic)
     if (state != ST_ESTOP && state != ST_FAULT) enterEstop(R_ESTOP_BTN);
   }
-  updateButton(btnGo, now);
+  updateButton(btnGo, now);                 // debounce both buttons (commands.cpp)
   updateButton(btnStop, now);
   if (btnGo.pressedEvent) { btnGo.pressedEvent = false; goRequest = true; }
   if (btnStop.pressedEvent) {               // E-stop reacts immediately, not on the next tick
     btnStop.pressedEvent = false;
     if (state != ST_ESTOP && state != ST_FAULT) enterEstop(R_ESTOP_BTN);
   }
-  taskSerialIn();
+  taskSerialIn();                           // commands typed on the laptop (commands.cpp)
 
-  taskMPU(micros(), now);
-  taskUltrasonic(now);
-  taskTemperature(now);
-  taskPower(now);
+  // Sensors (sensors.cpp). Each one runs only when its own timer says so.
+  taskMPU(micros(), now);                   // vibration + tilt sample every 10 ms
+  taskUltrasonic(now);                      // distance ping every 70 ms
+  taskTemperature(now);                     // DHT reading every 2.1 s
+  taskPower(now);                           // optional current / 12 V checks
 
+  // The safety decision, 10 times a second (safety.cpp).
+  // "now - tLogic" works even when millis() wraps round after 49 days,
+  // because unsigned subtraction wraps the same way.
   if (now - tLogic >= LOGIC_MS) {
     tLogic = now;
-    evaluate(now);
-    runStateMachine(now);
+    evaluate(now);                          // grade every check: OK / warning / stop
+    runStateMachine(now);                   // decide IDLE / RUN / WARNING / ESTOP / FAULT
   }
 
-  taskMotor(now);
-  taskIndicators(now);
-  taskLCD(now);
-  lcdFlush(LCD_UNITS_PER_PASS);
-  taskLog(now);
-  taskPlot(now);
+  // Outputs
+  taskMotor(now);                           // soft-start ramp towards the target speed (motor.cpp)
+  taskIndicators(now);                      // LEDs and buzzer patterns (indicators.cpp)
+  taskLCD(now);                             // decide what the LCD should show (lcd.cpp)
+  lcdFlush(LCD_UNITS_PER_PASS);             // ...and send a few characters of it per pass
+  taskLog(now);                             // text report or CSV data row (datalog.cpp)
+  taskPlot(now);                            // Serial Plotter values, if a graph is on (reports.cpp)
 }

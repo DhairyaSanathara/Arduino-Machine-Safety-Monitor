@@ -2,6 +2,11 @@
 //
 // Short codes go to the PC (CSV and events); full text goes to the LCD.
 //
+// Why PROGMEM: the Uno has only 2 KB of RAM but 32 KB of flash. Normal string
+// constants are copied into RAM at start-up; PROGMEM keeps them in flash only,
+// and pgmText() (util.cpp) copies one into RAM when it is needed.
+// The order of each table MUST match the enums in app.h.
+//
 // Part of Arduino Machine Safety Monitor - see ../MachineSafetyMonitor.ino
 
 #include "app.h"

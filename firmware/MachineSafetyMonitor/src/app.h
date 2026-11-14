@@ -24,6 +24,12 @@
 #define FIRMWARE_VERSION "2.2"
 
 // ============================ STATES AND REASONS ==========================
+// The five states of the machine (an "enum" gives each name a number 0, 1, 2...):
+//   ST_IDLE  motor off, ready, waiting for GO
+//   ST_RUN   motor running at the speed set from the laptop
+//   ST_WARN  motor slowed to 45 % because a warning limit is crossed
+//   ST_ESTOP motor off and LATCHED: needs the danger gone AND a GO press
+//   ST_FAULT motor off: a sensor was missing at power-up
 enum : uint8_t { ST_IDLE, ST_RUN, ST_WARN, ST_ESTOP, ST_FAULT };
 
 // Reasons in priority order: when two happen together, the lower number is shown
@@ -34,6 +40,7 @@ enum : uint8_t {
   R_COUNT
 };
 
+// Text for each state and reason, kept in flash memory (see strings.cpp).
 extern const char* const STATE_NAME[] PROGMEM;   // "IDLE", "RUN", ...
 extern const char* const REASON_TEXT[] PROGMEM;  // LCD text, max 16 characters
 extern const char* const REASON_CODE[] PROGMEM;  // short codes for the PC
@@ -41,13 +48,14 @@ extern const char* const REASON_CODE[] PROGMEM;  // short codes for the PC
 // =============================== OUTPUT ROUTING ===========================
 // All text output goes through LOG. While a graph is shown in the Serial
 // Plotter, LOG is switched to "nowhere", so only graph values reach the plotter.
+// NullOut is a "Print" that throws everything away: printing to it costs nothing.
 class NullOut : public Print {
  public:
   size_t write(uint8_t) { return 1; }
 };
 extern NullOut nullOut;
-extern Print* logOut;
-#define LOG (*logOut)
+extern Print* logOut;                   // points at Serial, or at nullOut while plotting
+#define LOG (*logOut)                   // so LOG.print(...) goes wherever logOut points
 
 // What the serial port sends:
 //   readable text (default) - a labelled report every 2 s, for the Serial Monitor
@@ -57,29 +65,31 @@ extern Print* logOut;
 #define OUTPUT_DEFAULT_TEXT 1
 #endif
 
-const uint8_t INA_ADDR = 0x40;
+const uint8_t INA_ADDR = 0x40;          // I2C address of the optional INA219 current sensor
 const uint8_t LCD_UNITS_PER_PASS = 6;   // LCD writes per loop pass (1 = a character or a cursor jump)
 
 // ================================ SHARED STATE ============================
 // (all defined in state.cpp)
-extern bool     textMode;
+// "extern" means: this variable exists, it is created in another file (state.cpp).
+// Every module can read and change it, and there is only one copy in RAM.
+extern bool     textMode;               // true = readable reports, false = CSV data rows
 extern uint8_t  plotMode;
 extern uint32_t tPlot;
-extern LiquidCrystal_I2C* lcd;
+extern LiquidCrystal_I2C* lcd;          // the LCD object, or NULL if no LCD was found
 extern uint8_t  lcdAddr;
 extern bool     lcdBusOk;
 extern uint32_t lcdRetryMs, lcdResyncMs;
 extern char     lcdCache[2][17];
 extern char     lcdWant[2][17];
 
-extern DHT      dht22;
-extern DHT      dht11;
-extern DHT*     dht;
+extern DHT      dht22;                  // two driver objects for the same pin:
+extern DHT      dht11;                  // the self-test finds out which sensor is fitted
+extern DHT*     dht;                    // ...and points this at the right one
 extern uint8_t  dhtModel;
 extern uint8_t  mpuAddr;
 
 // Sensor health
-extern bool mpuOk, tempOk;
+extern bool mpuOk, tempOk;              // found at power-up
 #if HAS_INA219
 extern bool inaOk;
 #else
@@ -90,66 +100,75 @@ extern bool senseOk;
 #else
 const bool senseOk = false;
 #endif
-extern bool mpuFail, tempFail, inaFail;
-extern uint8_t mpuErrCount, mpuStuckCount, tempBadCount, inaErrCount;
+extern bool mpuFail, tempFail, inaFail;  // lost while running (each becomes a stop reason)
+extern uint8_t mpuErrCount, mpuStuckCount, tempBadCount, inaErrCount;  // failures in a row
 
 // Measurements
-extern float   distCm;
-extern float   distRaw[3];
-extern uint8_t distIdx;
-extern float   tempC, humidity, tempRate;
-extern bool    tempRateValid;
-extern float   tBuf[TREND_N];
-extern uint8_t tHead, tCount;
-extern float   vibMg, tiltDeg;
-extern float   accOff[3], accSum[3], accSq[3];
-extern uint8_t nSamples;
-extern float   tiltRef[3];
-extern bool    tiltRefSet, rezeroTilt;
-extern float   currentMa, busV, powerW;
+extern float   distCm;                  // filtered distance to a person, cm
+extern float   distRaw[3];              // last 3 raw pings (for the median filter)
+extern uint8_t distIdx;                 // where the next ping goes in distRaw
+extern float   tempC, humidity, tempRate;   // deg C, % RH, deg C per minute
+extern bool    tempRateValid;           // false until enough readings for a trend
+extern float   tBuf[TREND_N];           // ring buffer of recent temperatures
+extern uint8_t tHead, tCount;           // next slot in tBuf, and how many are filled
+extern float   vibMg, tiltDeg;          // vibration RMS (milli-g) and tilt (degrees)
+extern float   accOff[3], accSum[3], accSq[3];  // per-axis mean, sum, sum of squares
+extern uint8_t nSamples;                // samples collected in the current 0.5 s window
+extern float   tiltRef[3];              // the "level" direction of gravity when installed
+extern bool    tiltRefSet, rezeroTilt;  // reference taken? / 'z' asked for a new one
+extern float   currentMa, busV, powerW; // optional INA219 readings
 
 // Learned baselines and the limits in force
-extern bool     baselineReady;
-extern float    vibBase, curBase, learnVibSum, learnCurSum;
-extern uint8_t  learnVibN;
+extern bool     baselineReady;          // true once this speed's normal vibration is known
+extern float    vibBase, curBase, learnVibSum, learnCurSum;  // baseline and learning sums
+extern uint8_t  learnVibN;              // vibration windows collected while learning
 extern uint16_t learnCurN;
-extern float    vibWarn, vibStop, curWarn, curStop;
+extern float    vibWarn, vibStop, curWarn, curStop;  // limits worked out from the baseline
 
 // Decision logic
-extern uint8_t  state;
-extern uint8_t  lvl[R_COUNT];
-extern uint8_t  worstLevel, worstReason, latchedReason;
-extern uint8_t  vibStopCount, curStopCount, powerBadCount, relayBadCount, stallCount;
-extern uint32_t runStartMs, relayChangeMs, lastWarnMs;
-extern bool     relayOn;
-extern uint8_t  pwmNow;
+extern uint8_t  state;                  // current state: ST_IDLE ... ST_FAULT
+extern uint8_t  lvl[R_COUNT];           // grade of every check: 0 OK, 1 warning, 2 stop
+extern uint8_t  worstLevel, worstReason, latchedReason;  // worst grade now / why / why we stopped
+extern uint8_t  vibStopCount, curStopCount, powerBadCount, relayBadCount, stallCount;  // "in a row" counters
+extern uint32_t runStartMs, relayChangeMs, lastWarnMs;   // time stamps in ms
+extern bool     relayOn;                // what we last told the relay to do
+extern uint8_t  pwmNow;                 // PWM currently sent to the motor (0..255)
 extern volatile bool estopIrq;          // set by the E-stop interrupt, cleared by loop()
-extern bool     goRequest;
+extern bool     goRequest;              // GO was pressed (button or 'g'); handled by the state machine
 
 // Speed and per-speed baselines (10 % steps)
-extern uint8_t  speedPct;
-extern uint32_t speedChangeMs;
-extern float    baseVib[11], baseCur[11];
-extern uint16_t baseKnown;
-extern uint16_t estopCount;
-extern int16_t  numIn;
-extern uint32_t numInMs;
+extern uint8_t  speedPct;               // speed set point, 10..100 %
+extern uint32_t speedChangeMs;          // when it last changed (checks wait for the motor to settle)
+extern float    baseVib[11], baseCur[11];   // learned baseline for 0 %, 10 %, ... 100 %
+extern uint16_t baseKnown;              // bit n set = baseline for n x 10 % is learned
+extern uint16_t estopCount;             // emergency stops since power-up
+extern int16_t  numIn;                  // digits typed so far in the Serial Monitor (-1 = none)
+extern uint32_t numInMs;                // when the last digit arrived
 
 // Data row being sent in pieces
-extern char     rowBuf[260];
-extern uint8_t  rowLen, rowPos;
+extern char     rowBuf[260];            // the CSV row being sent
+extern uint8_t  rowLen, rowPos;         // its length, and how much is already sent
 
 // Buttons
+// One debounced push button:
+//   pin          Arduino pin
+//   nc           true for a normally-closed contact (a real mushroom E-stop)
+//   stable       the debounced state: true = pressed
+//   last         the raw reading last time, to notice a change
+//   changedMs    when the raw reading last changed
+//   pressedEvent set once per press, cleared by whoever handles it
 struct Button {
   uint8_t pin; bool nc; bool stable; bool last; uint32_t changedMs; bool pressedEvent;
 };
 extern Button btnGo, btnStop;
 
-// Task timers
+// Task timers: the last time each task ran (ms, or us for tSampleUs). A task runs
+// again when "now - its timer" reaches its period from config.h.
 extern uint32_t tSampleUs, tPing, tTemp, tIna, tLogic, tLog, tLcd, tLcdPage, tMotor, beepUntil;
-extern uint8_t  lcdPage;
+extern uint8_t  lcdPage;                // which reading the LCD's second line shows
 
 // ================================== FUNCTIONS =============================
+// Prototypes: the name and inputs of every function, grouped by the file it lives in.
 // util.cpp
 void pgmText(const char* const* table, uint8_t i, char* out, uint8_t len);
 void printPgm(const char* const* table, uint8_t i);

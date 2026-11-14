@@ -1,5 +1,7 @@
 // self_test.cpp - power-up sensor check and event logging
 //
+// selfTest() finds every sensor at power-up. setup() then refuses to run
+// (FAULT) if the MPU6050 or the DHT is missing.
 //
 // Part of Arduino Machine Safety Monitor - see ../MachineSafetyMonitor.ino
 
@@ -18,6 +20,8 @@ bool detect12VSense() {
   return raw < 600;                          // below ~2.9 V = divider present
 }
 
+// Start an event line. Events are things that HAPPEN (state change, speed change,
+// baseline learned) as opposed to the regular readings. F("...") keeps the text in flash.
 void logEventStart(const __FlashStringHelper* what) {
   rowFinish();                     // never print into the middle of a data row
   if (textMode) {
@@ -30,15 +34,18 @@ void logEventStart(const __FlashStringHelper* what) {
   LOG.print(what);
 }
 
+// Check every sensor and report the result, e.g.
+//   E,1205,SELFTEST,MPU6050=OK DHT22=OK INA219=not fitted 12V_SENSE=not fitted LCD=OK
 void selfTest() {
-  mpuOk = initMPU();
-  tempOk = initTempSensor();
+  mpuOk = initMPU();                       // mpu6050.cpp
+  tempOk = initTempSensor();               // dht_sensor.cpp
 #if HAS_INA219
   inaOk = initINA();
 #endif
 #if HAS_12V_DIVIDER
   senseOk = !inaOk && USE_12V_SENSE && detect12VSense();
 #endif
+  // A missing sensor counts as "failed" so evaluate() treats it as a stop reason
   mpuFail = !mpuOk;
   tempFail = !tempOk;
   inaFail = false;

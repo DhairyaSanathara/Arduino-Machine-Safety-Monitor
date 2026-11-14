@@ -13,6 +13,7 @@
 // at most a few changed characters (~7 ms), so no pass is ever held up for long.
 // A full screen change still completes within a few tens of milliseconds.
 
+// Say what one row (0 = top, 1 = bottom) should show. Nothing is sent to the LCD here.
 void lcdLine(uint8_t row, const char* text) {
   uint8_t i = 0;
   for (; i < 16 && text[i]; i++) lcdWant[row][i] = text[i];
@@ -27,8 +28,10 @@ void lcdLine(uint8_t row, const char* text) {
 // a second. A wire that flickers can also put the LCD out of step (it receives
 // half-bytes), which shows as garbage - so every 10 s, and whenever the bus comes
 // back, the LCD is put back in step and the whole screen is redrawn.
+// The LCD is driven 4 bits ("a nibble") at a time through the PCF8574 backpack.
+// A pulse on EN (high then low) tells the LCD to take the 4 bits.
 void lcdNibble(uint8_t n) {                 // backpack: P0=RS P1=RW P2=EN P3=light P4-7=data
-  uint8_t v = (n << 4) | 0x08;
+  uint8_t v = (n << 4) | 0x08;              // data on P4-P7, backlight bit (P3) kept on
   Wire.beginTransmission(lcdAddr); Wire.write(v | 0x04); Wire.endTransmission();  // EN high
   Wire.beginTransmission(lcdAddr); Wire.write(v);        Wire.endTransmission();  // EN low
 }
@@ -46,16 +49,18 @@ void lcdResync() {                          // the datasheet's "reset by instruc
   memset(lcdCache, 0, sizeof lcdCache);     // redraw everything
 }
 
+// Write up to "budget" changes to the LCD (a cursor jump or one character each).
 // Returns true if something is still left to write
 bool lcdFlush(uint8_t budget) {
-  if (!lcd) return false;
+  if (!lcd) return false;                   // no LCD fitted
   uint32_t now = millis();
-  bool due = (now - lcdResyncMs >= 10000);
+  bool due = (now - lcdResyncMs >= 10000);  // time for the 10 s re-sync?
+  // Compare "wanted" with "on screen" (memcmp = compare memory, 0 = identical)
   bool changed = (memcmp(lcdWant[0], lcdCache[0], 16) != 0) || (memcmp(lcdWant[1], lcdCache[1], 16) != 0);
   if (!changed && !due) return false;
   if (!lcdBusOk && now - lcdRetryMs < 1000) return false;   // jammed: try again in 1 s
   if (changed || due) {
-    if (!i2cPresent(lcdAddr)) {
+    if (!i2cPresent(lcdAddr)) {             // LCD not answering: report once, back off
       if (lcdBusOk) { logEventStart(F("I2C_BUS_ERROR")); LOG.println(); }
       lcdBusOk = false;
       lcdRetryMs = now;
@@ -68,10 +73,12 @@ bool lcdFlush(uint8_t budget) {
       lcdResyncMs = now;
     }
   }
+  // Walk both rows; only characters that differ are written. A run of changed
+  // characters needs one cursor jump, then the LCD moves right by itself.
   for (uint8_t row = 0; row < 2; row++) {
     uint8_t i = 0;
     while (i < 16) {
-      if (lcdWant[row][i] == lcdCache[row][i]) { i++; continue; }
+      if (lcdWant[row][i] == lcdCache[row][i]) { i++; continue; }   // already right
       if (budget < 2) return true;          // out of time for this pass
       lcd->setCursor(i, row);
       budget--;
@@ -86,6 +93,12 @@ bool lcdFlush(uint8_t budget) {
   return false;
 }
 
+// Build the bottom line for "page" p (the pages rotate every 2 s):
+//   0  D:120cm T:30.0C        distance + temperature
+//   1  V:36mg Tilt:0(deg)     vibration + tilt
+//   2  RH:52% +0.3C/m         humidity + temperature rise rate
+//   3  Set:70% 01:23          set speed + run time  (or Set:70% Stop:3 when stopped)
+// snprintf_P = printf into a buffer, with the format text kept in flash (PSTR).
 void valuePage(uint8_t p, char* out) {
   char a[8], b[8];
   if (p == 0) {                                // distance + temperature
@@ -122,10 +135,12 @@ void valuePage(uint8_t p, char* out) {
   }
 }
 
+// 4 times a second: decide the two lines. Top line = the state, bottom line =
+// the reason when something is wrong, alternating with the readings.
 void taskLCD(uint32_t now) {
   if (!lcd || now - tLcd < LCD_MS) return;
   tLcd = now;
-  if (now - tLcdPage >= LCD_PAGE_MS) { tLcdPage = now; lcdPage++; }
+  if (now - tLcdPage >= LCD_PAGE_MS) { tLcdPage = now; lcdPage++; }   // next page every 2 s
 
   char l0[17], l1[17];
   uint8_t pct = pwmToPct(pwmNow);              // actual speed, same scale as the set point
@@ -164,13 +179,14 @@ void taskLCD(uint32_t now) {
   lcdLine(1, l1);
 }
 
+// Find the LCD at power-up. Its backpack is at 0x27 or 0x3F depending on the maker.
 void initLCD() {
   uint8_t addr = 0;
   if (i2cPresent(0x27)) addr = 0x27;
   else if (i2cPresent(0x3F)) addr = 0x3F;
   if (!addr) return;                        // the machine still works without a screen
   lcdAddr = addr;
-  lcd = new LiquidCrystal_I2C(addr, 16, 2);
+  lcd = new LiquidCrystal_I2C(addr, 16, 2); // 16 characters x 2 rows
   lcd->init();
   lcd->backlight();
   memset(lcdCache, 0, sizeof lcdCache);    // unknown -> everything counts as changed

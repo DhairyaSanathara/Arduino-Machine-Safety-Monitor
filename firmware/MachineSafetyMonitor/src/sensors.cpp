@@ -9,27 +9,41 @@
 
 // ======================== 13. SENSOR TASKS =================================
 // --- Ultrasonic: distance = echo time x speed of sound / 2 (there and back)
+// How the HC-SR04 works: a 10 us pulse on TRIG makes it send 8 bursts of 40 kHz
+// sound. It then holds ECHO HIGH until the sound bounces back. So the length of
+// the ECHO pulse is the round-trip time of the sound.
+// Example: echo 1166 us -> 1166 x 0.0343 / 2 = 20 cm.
 void taskUltrasonic(uint32_t now) {
-  if (now - tPing < PING_MS) return;
+  if (now - tPing < PING_MS) return;           // one ping every 70 ms (old echoes must die out)
   tPing = now;
-  digitalWrite(PIN_US_TRIG, LOW);
+  digitalWrite(PIN_US_TRIG, LOW);              // clean LOW first...
   delayMicroseconds(2);
-  digitalWrite(PIN_US_TRIG, HIGH);
+  digitalWrite(PIN_US_TRIG, HIGH);             // ...then the 10 us trigger pulse
   delayMicroseconds(10);
   digitalWrite(PIN_US_TRIG, LOW);
+  // pulseIn waits for ECHO to go HIGH and returns how long it stayed HIGH, in us.
+  // The 10 ms time-out (~170 cm) means it never blocks the loop for long.
   uint32_t us = pulseIn(PIN_US_ECHO, HIGH, ECHO_TIMEOUT_US);
+  // 0 = no echo in time = nothing in range, treated as "zone clear".
+  // (Known limit: an unplugged sensor also gives 0 - see labs/01 in the repository.)
   float cm = (us == 0) ? DIST_MAX_CM : us * 0.0343 / 2.0;   // 343 m/s = 0.0343 cm/us
   if (cm > DIST_MAX_CM) cm = DIST_MAX_CM;
-  distRaw[distIdx] = cm;
-  distIdx = (distIdx + 1) % 3;
+  distRaw[distIdx] = cm;                       // keep the last 3 pings in a small ring
+  distIdx = (distIdx + 1) % 3;                 // 0, 1, 2, 0, 1, 2 ...
   distCm = median3(distRaw[0], distRaw[1], distRaw[2]);     // one bad echo cannot trip us
 }
 
 // --- Temperature trend: least-squares slope of the last TREND_N readings
+// Fits the best straight line through the last 15 readings (~30 s) and returns
+// its slope. Using all 15 points (not just first and last) averages out the
+// sensor's small jumps. The textbook formula, with x = 0, 1, 2 ... (reading number)
+// and y = temperature:
+//      slope = (n x sum(xy) - sum(x) x sum(y)) / (n x sum(x^2) - sum(x)^2)
 float trendSlopePerMin() {
   uint8_t n = tCount;
-  uint8_t start = (tHead + TREND_N - n) % TREND_N;
-  float y0 = tBuf[start];
+  uint8_t start = (tHead + TREND_N - n) % TREND_N;   // index of the oldest reading in the ring
+  float y0 = tBuf[start];                     // subtract the first value: small numbers,
+                                              // more accurate float maths, same slope
   float sx = 0, sy = 0, sxx = 0, sxy = 0;
   for (uint8_t i = 0; i < n; i++) {
     float x = i;
@@ -42,13 +56,15 @@ float trendSlopePerMin() {
   return perSample * (60000.0 / TEMP_MS);             // -> deg C per minute
 }
 
+// Every 2.1 s: read the DHT, update the trend, and notice a lost sensor.
 void taskTemperature(uint32_t now) {
-  if (!tempOk || now - tTemp < TEMP_MS) return;
+  if (!tempOk || now - tTemp < TEMP_MS) return;   // no sensor at power-up, or not time yet
   tTemp = now;
   float t = dht->readTemperature(false, true); // one fresh reading (DHT22 ~5 ms, DHT11 ~25 ms)
   float h = dht->readHumidity();               // same reading, no second wait
   if (isnan(t) || t < -40 || t > 80) {         // no answer = wire loose or sensor dead
     if (tempBadCount < 255) tempBadCount++;
+    // 3 failures in a row (~6 s) = sensor lost. evaluate() turns tempFail into a stop.
     if (tempBadCount >= 3) { tempFail = true; tempC = NAN; tCount = 0; tempRateValid = false; }
     return;
   }
@@ -56,6 +72,7 @@ void taskTemperature(uint32_t now) {
   tempFail = false;
   tempC = t;
   if (!isnan(h)) humidity = h;
+  // Ring buffer: write over the oldest slot and move on; after 15 readings it wraps
   tBuf[tHead] = t;
   tHead = (tHead + 1) % TREND_N;
   if (tCount < TREND_N) tCount++;
@@ -66,13 +83,17 @@ void taskTemperature(uint32_t now) {
 }
 
 // --- Baselines and limits
+// Turn the learned "normal" vibration into warning and stop limits.
+// Example: baseline 35 mg -> warn = 2 x 35 = 70 mg, stop = 3.5 x 35 = 123 mg.
+// Safety rails: never warn below 40 mg (a very smooth motor would trip on dust),
+// never allow a stop limit above 800 mg, and keep warn below 80 % of stop.
 void updateLimits() {
   if (!baselineReady) {                       // while learning: only the absolute limits
     vibWarn = vibStop = VIB_ABS_STOP_MG;
     curWarn = curStop = CUR_ABS_STOP_MA;
     return;
   }
-  vibWarn = fmax(VIB_FLOOR_MG, vibBase * VIB_WARN_FACTOR);
+  vibWarn = fmax(VIB_FLOOR_MG, vibBase * VIB_WARN_FACTOR);     // fmax = the larger of the two
   vibStop = fmax(vibWarn * 1.5, vibBase * VIB_STOP_FACTOR);
   if (vibStop > VIB_ABS_STOP_MG) vibStop = VIB_ABS_STOP_MG;
   if (vibWarn > vibStop * 0.8) vibWarn = vibStop * 0.8;
@@ -83,14 +104,15 @@ void updateLimits() {
   if (curWarn > curStop * 0.8) curWarn = curStop * 0.8;
 }
 
+// Learning is done (8 windows = 4 s): the average becomes this speed's baseline.
 void finishLearning() {
-  vibBase = learnVibSum / learnVibN;
+  vibBase = learnVibSum / learnVibN;          // average vibration of the healthy machine
   curBase = (learnCurN > 0) ? learnCurSum / learnCurN : 0;
   baselineReady = true;
   uint8_t b = speedPct / 10;                 // remember it for this speed
   baseVib[b] = vibBase;
   baseCur[b] = curBase;
-  baseKnown |= (1u << b);
+  baseKnown |= (1u << b);                    // set bit b: "speed b x 10 % is learned"
   updateLimits();
   logEventStart(F("BASELINE"));
   LOG.print(F(",speed_pct=")); LOG.print(speedPct);
@@ -103,21 +125,25 @@ void finishLearning() {
     LOG.print(F(" cur_stop=")); LOG.print(curStop, 0);
   }
   LOG.println();
-  beep(60);
+  beep(60);                                  // a short chirp: "learned"
 }
 
 // --- Called every 0.5 s with a fresh vibration result
 void onVibrationWindow(uint32_t now) {
+  // For 2 s after a start or a speed change the motor is still settling: no checks
   if (!motorChecksActive(now)) {
     lvl[R_VIB] = lvl[R_STALL] = 0;
     vibStopCount = stallCount = 0;
     return;
   }
+  // Learning: only in RUN at full set speed (not in WARNING, not while ramping)
   if (!baselineReady && state == ST_RUN && pwmNow == runPwm()) {
     learnVibSum += vibMg;
     learnVibN++;
     if (learnVibN >= LEARN_WINDOWS) finishLearning();
   }
+  // Grade the vibration (15 % hysteresis), then require 2 windows (1 s) in a row
+  // before it can stop the machine
   uint8_t l = levelHigh(vibMg, vibWarn, vibStop, vibWarn * 0.15, lvl[R_VIB]);
   if (l == 2) {
     if (vibStopCount < 255) vibStopCount++;
@@ -127,7 +153,8 @@ void onVibrationWindow(uint32_t now) {
   }
   lvl[R_VIB] = l;
 
-  // Stall / jam: at a steady speed the motor must keep vibrating like it did when healthy
+  // Stall / jam: at a steady speed the motor must keep vibrating like it did when healthy.
+  // Vibration below 35 % of the baseline for 3 windows (1.5 s) = the shaft has stopped.
   if (baselineReady && vibBase >= STALL_MIN_BASE_MG && state == ST_RUN &&
       pwmNow == runPwm() && vibMg < vibBase * STALL_FACTOR) {
     if (stallCount < 255) stallCount++;
@@ -138,15 +165,20 @@ void onVibrationWindow(uint32_t now) {
 }
 
 // --- Vibration RMS + tilt from one 0.5 s window of samples
+// Every 0.5 s (50 samples) we have, per axis, the sum and the sum of squares.
+//   mean  = where the reading sits on average  = gravity -> used for TILT
+//   variance = how much it moves around the mean = shaking -> used for VIBRATION
+// Vibration RMS = sqrt(variance of X + variance of Y + variance of Z), so gravity
+// (which never changes) does not count as vibration.
 void finishWindow(uint32_t now) {
   float mean[3];
   float var = 0;
   for (uint8_t k = 0; k < 3; k++) {
-    float m = accSum[k] / nSamples;
-    mean[k] = accOff[k] + m;
+    float m = accSum[k] / nSamples;           // mean of (sample - offset)
+    mean[k] = accOff[k] + m;                  // real mean of this axis, in counts
     var += accSq[k] / nSamples - m * m;       // variance = mean of squares - square of mean
-    accOff[k] = mean[k];
-    accSum[k] = 0;
+    accOff[k] = mean[k];                      // next window measures around this mean
+    accSum[k] = 0;                            // empty the sums for the next window
     accSq[k] = 0;
   }
   nSamples = 0;
@@ -161,8 +193,11 @@ void finishWindow(uint32_t now) {
     mpuFail = false;
   }
   vibMg = sqrt(var) * 1000.0 / ACC_LSB_PER_G;   // RMS of all 3 axes, in milli-g
+                                                // (counts / 8192 = g, x 1000 = milli-g)
 
-  // Tilt = angle between today's gravity direction and the installed one
+  // Tilt = angle between today's gravity direction and the installed one.
+  // The first window after power-up (or after 'z') becomes the "level" reference.
+  // Angle between two vectors a and b:  cos(angle) = a.b / (|a| x |b|)
   if (rezeroTilt || !tiltRefSet) {
     for (uint8_t k = 0; k < 3; k++) tiltRef[k] = mean[k];
     tiltRefSet = true;
@@ -176,15 +211,17 @@ void finishWindow(uint32_t now) {
   }
   if (ma > 0 && mb > 0) {
     float c = dot / (sqrt(ma) * sqrt(mb));
-    if (c > 1) c = 1;
+    if (c > 1) c = 1;                         // rounding can give 1.0000001; acos needs -1..1
     if (c < -1) c = -1;
-    tiltDeg = acos(c) * 57.29578;
+    tiltDeg = acos(c) * 57.29578;             // radians -> degrees (180 / pi = 57.29578)
   }
-  onVibrationWindow(now);
+  onVibrationWindow(now);                     // grade the new vibration value
 }
 
+// Take one acceleration sample every 10 ms (100 per second) and add it to the sums.
+// Timed in microseconds (micros) for even spacing between samples.
 void taskMPU(uint32_t nowUs, uint32_t now) {
-  if (!mpuOk) return;
+  if (!mpuOk) return;                         // not found at power-up
   // Sensor lost (e.g. jammed I2C bus): retry only 5x per second, so each 25 ms
   // time-out cannot slow the whole loop down
   if (nowUs - tSampleUs < (mpuFail ? 200000UL : (uint32_t)SAMPLE_US)) return;
@@ -201,11 +238,12 @@ void taskMPU(uint32_t nowUs, uint32_t now) {
     accSum[k] += d;
     accSq[k]  += d * d;
   }
-  if (++nSamples >= VIB_WINDOW) finishWindow(now);
+  if (++nSamples >= VIB_WINDOW) finishWindow(now);   // 50 samples = 0.5 s: compute the result
 }
 
 // --- Motor supply: voltage from the A3 divider (or the optional INA219),
 //     two electrical cross-checks, and current checks if an INA219 is fitted
+// NOTE: neither is fitted on our prototype, so this returns at once (see "return" below).
 void taskPower(uint32_t now) {
   if (now - tIna < INA_MS) return;
   tIna = now;
