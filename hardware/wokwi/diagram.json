@@ -1,100 +1,623 @@
 {
-  "version": 1,
-  "author": "Dhairya Sanathara, Kaushal Chitlange, Mahi Mistry, Kavan Vyas",
-  "editor": "wokwi",
-  "parts": [
-    { "type": "wokwi-arduino-uno", "id": "uno", "top": 0, "left": 0, "attrs": {} },
-
-    { "type": "wokwi-lcd1602", "id": "lcd1", "top": -300, "left": -70,
-      "attrs": { "pins": "i2c", "i2cAddress": "0x27", "background": "blue", "color": "white" } },
-    { "type": "wokwi-mpu6050", "id": "imu1", "top": -260, "left": 300, "attrs": {} },
-    { "type": "wokwi-dht22", "id": "dht1", "top": -290, "left": 410,
-      "attrs": { "temperature": "29", "humidity": "51" } },
-    { "type": "wokwi-hc-sr04", "id": "sonar1", "top": -290, "left": 500, "attrs": { "distance": "120" } },
-
-    { "type": "wokwi-relay-module", "id": "relay1", "top": 20, "left": 380, "attrs": { "transistor": "pnp" } },
-    { "type": "wokwi-resistor", "id": "rmot", "top": 140, "left": 540, "rotate": 0, "attrs": { "value": "220" } },
-    { "type": "wokwi-led", "id": "ledmot", "top": 100, "left": 640, "attrs": { "color": "orange", "label": "MOTOR" } },
-
-    { "type": "wokwi-resistor", "id": "rg", "top": 300, "left": 20, "rotate": 90, "attrs": { "value": "220" } },
-    { "type": "wokwi-resistor", "id": "ry", "top": 300, "left": 70, "rotate": 90, "attrs": { "value": "220" } },
-    { "type": "wokwi-resistor", "id": "rr", "top": 300, "left": 120, "rotate": 90, "attrs": { "value": "220" } },
-    { "type": "wokwi-led", "id": "ledg", "top": 370, "left": 25, "attrs": { "color": "green" } },
-    { "type": "wokwi-led", "id": "ledy", "top": 370, "left": 75, "attrs": { "color": "yellow" } },
-    { "type": "wokwi-led", "id": "ledr", "top": 370, "left": 125, "attrs": { "color": "red" } },
-    { "type": "wokwi-buzzer", "id": "bz1", "top": 290, "left": 200, "attrs": { "volume": "0.1" } },
-    { "type": "wokwi-pushbutton", "id": "btngo", "top": 300, "left": 320,
-      "attrs": { "color": "green", "label": "GO" } },
-    { "type": "wokwi-pushbutton", "id": "btnstop", "top": 300, "left": 440,
-      "attrs": { "color": "red", "label": "E-STOP" } },
-
-    { "type": "wokwi-text", "id": "t_title", "top": -380, "left": -70,
-      "attrs": { "text": "ARDUINO MACHINE SAFETY MONITOR  -  ENR206, Ahmedabad University\nWokwi simulation of the real wiring (firmware v2.2)" } },
-    { "type": "wokwi-text", "id": "t_lcd", "top": -150, "left": -70,
-      "attrs": { "text": "16x2 LCD + I2C backpack (0x27)\nSDA -> A4, SCL -> A5" } },
-    { "type": "wokwi-text", "id": "t_imu", "top": -320, "left": 290,
-      "attrs": { "text": "MPU6050\nvibration + tilt\nI2C 0x68" } },
-    { "type": "wokwi-text", "id": "t_dht", "top": -320, "left": 400,
-      "attrs": { "text": "DHT22\ntemp + humidity\nDATA -> D4" } },
-    { "type": "wokwi-text", "id": "t_sonar", "top": -320, "left": 520,
-      "attrs": { "text": "HC-SR04 proximity\nTRIG -> D11, ECHO -> D10" } },
-    { "type": "wokwi-text", "id": "t_relay", "top": -20, "left": 380,
-      "attrs": { "text": "Relay module (active-low)\nIN -> D9, cuts the motor's 12 V" } },
-    { "type": "wokwi-text", "id": "t_motor", "top": 190, "left": 500,
-      "attrs": { "text": "MOTOR STAND-IN: Wokwi has no L298N or DC motor.\nD5 PWM (L298N ENA) goes through the relay contact\nto this LED: brightness = motor speed,\ndark when the relay cuts the power." } },
-    { "type": "wokwi-text", "id": "t_leds", "top": 440, "left": 0,
-      "attrs": { "text": "Status LEDs\nA0 green / A1 yellow / A2 red\n220 ohm each" } },
-    { "type": "wokwi-text", "id": "t_bz", "top": 380, "left": 190,
-      "attrs": { "text": "Buzzer\n+ -> D8" } },
-    { "type": "wokwi-text", "id": "t_btn", "top": 380, "left": 320,
-      "attrs": { "text": "GO -> D2 (start / reset)\nE-STOP -> D3 (hardware interrupt)\nboth to GND, internal pull-ups" } }
+ "version": 1,
+ "author": "Dhairya Sanathara, Kaushal Chitlange, Mahi Mistry, Kavan Vyas",
+ "editor": "wokwi",
+ "parts": [
+  {
+   "type": "wokwi-arduino-uno",
+   "id": "uno",
+   "top": 0,
+   "left": 0,
+   "attrs": {}
+  },
+  {
+   "type": "wokwi-mpu6050",
+   "id": "imu1",
+   "top": -165,
+   "left": -110,
+   "attrs": {},
+   "rotate": 180
+  },
+  {
+   "type": "wokwi-hc-sr04",
+   "id": "sonar1",
+   "top": -215,
+   "left": 63,
+   "attrs": {
+    "distance": "120"
+   }
+  },
+  {
+   "type": "wokwi-dht22",
+   "id": "dht1",
+   "top": -225,
+   "left": 255,
+   "attrs": {
+    "temperature": "29",
+    "humidity": "51"
+   }
+  },
+  {
+   "type": "wokwi-lcd1602",
+   "id": "lcd1",
+   "top": 40,
+   "left": -500,
+   "attrs": {
+    "pins": "i2c",
+    "i2cAddress": "0x27",
+    "background": "blue",
+    "color": "white"
+   }
+  },
+  {
+   "type": "wokwi-relay-module",
+   "id": "relay1",
+   "top": 40,
+   "left": 330,
+   "attrs": {
+    "transistor": "pnp"
+   }
+  },
+  {
+   "type": "wokwi-resistor",
+   "id": "rmot",
+   "top": 120,
+   "left": 465,
+   "attrs": {
+    "value": "220"
+   }
+  },
+  {
+   "type": "wokwi-led",
+   "id": "ledmot",
+   "top": 85,
+   "left": 525,
+   "attrs": {
+    "color": "orange",
+    "label": "MOTOR"
+   }
+  },
+  {
+   "type": "wokwi-resistor",
+   "id": "rg",
+   "top": 330,
+   "left": -9.5,
+   "attrs": {
+    "value": "220"
+   },
+   "rotate": 90
+  },
+  {
+   "type": "wokwi-led",
+   "id": "ledg",
+   "top": 375,
+   "left": -5,
+   "attrs": {
+    "color": "green"
+   }
+  },
+  {
+   "type": "wokwi-resistor",
+   "id": "ry",
+   "top": 330,
+   "left": 40.5,
+   "attrs": {
+    "value": "220"
+   },
+   "rotate": 90
+  },
+  {
+   "type": "wokwi-led",
+   "id": "ledy",
+   "top": 375,
+   "left": 45,
+   "attrs": {
+    "color": "yellow"
+   }
+  },
+  {
+   "type": "wokwi-resistor",
+   "id": "rr",
+   "top": 330,
+   "left": 90.5,
+   "attrs": {
+    "value": "220"
+   },
+   "rotate": 90
+  },
+  {
+   "type": "wokwi-led",
+   "id": "ledr",
+   "top": 375,
+   "left": 95,
+   "attrs": {
+    "color": "red"
+   }
+  },
+  {
+   "type": "wokwi-buzzer",
+   "id": "bz1",
+   "top": 320,
+   "left": 175,
+   "attrs": {
+    "volume": "0.1"
+   }
+  },
+  {
+   "type": "wokwi-pushbutton",
+   "id": "btngo",
+   "top": 330,
+   "left": 300,
+   "attrs": {
+    "color": "green",
+    "label": "GO"
+   }
+  },
+  {
+   "type": "wokwi-pushbutton",
+   "id": "btnstop",
+   "top": 330,
+   "left": 420,
+   "attrs": {
+    "color": "red",
+    "label": "E-STOP"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_title",
+   "top": -300,
+   "left": -500,
+   "attrs": {
+    "text": "ARDUINO MACHINE SAFETY MONITOR - ENR206, Ahmedabad University\nWokwi model of the real wiring (firmware v2.2)"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_note",
+   "top": 400,
+   "left": -500,
+   "attrs": {
+    "text": "Simulation notes:\n- Wokwi has no L298N or DC motor. The orange\n  MOTOR LED gets the D5 PWM through the relay\n  contact, so its brightness = motor speed.\n- Real build: the 5 V rail comes from the SMPS and\n  the relay switches the SMPS 12 V to the L298N."
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_imu",
+   "top": -150,
+   "left": -230,
+   "attrs": {
+    "text": "MPU6050\nvibration, tilt\nI2C 0x68"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_sonar",
+   "top": -255,
+   "left": 63,
+   "attrs": {
+    "text": "HC-SR04  TRIG D11  ECHO D10"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_dht",
+   "top": -200,
+   "left": 320,
+   "attrs": {
+    "text": "DHT22\nDATA D4"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_lcd",
+   "top": 190,
+   "left": -500,
+   "attrs": {
+    "text": "16x2 LCD, I2C 0x27\nSDA A4, SCL A5"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_relay",
+   "top": 105,
+   "left": 330,
+   "attrs": {
+    "text": "Relay IN D9\n(active-low)"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_leds",
+   "top": 470,
+   "left": -40,
+   "attrs": {
+    "text": "LEDs A0 A1 A2"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_bz",
+   "top": 470,
+   "left": 170,
+   "attrs": {
+    "text": "Buzzer D8"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_btn",
+   "top": 400,
+   "left": 300,
+   "attrs": {
+    "text": "GO D2      E-STOP D3 (interrupt)"
+   }
+  },
+  {
+   "type": "wokwi-text",
+   "id": "t_rails",
+   "top": 330,
+   "left": -500,
+   "attrs": {
+    "text": "5 V rail (red)\nGND rail (black)"
+   }
+  }
+ ],
+ "connections": [
+  [
+   "sonar1:TRIG",
+   "uno:11",
+   "orange",
+   []
   ],
-  "connections": [
-    [ "lcd1:VCC", "uno:5V", "red", [ "h-30", "v390", "h175" ] ],
-    [ "lcd1:GND", "uno:GND.2", "black", [ "h-40", "v410", "h195" ] ],
-    [ "lcd1:SDA", "uno:A4", "blue", [ "h-50", "v430", "h270" ] ],
-    [ "lcd1:SCL", "uno:A5", "purple", [ "h-60", "v450", "h290" ] ],
-
-    [ "imu1:VCC", "uno:5V", "red", [ "v20", "*", "v30" ] ],
-    [ "imu1:GND", "uno:GND.1", "black", [ "v30" ] ],
-    [ "imu1:SDA", "uno:A4", "blue", [ "v40", "*", "v50" ] ],
-    [ "imu1:SCL", "uno:A5", "purple", [ "v50", "*", "v60" ] ],
-
-    [ "dht1:VCC", "uno:5V", "red", [ "v20", "*", "v30" ] ],
-    [ "dht1:GND", "uno:GND.1", "black", [ "v30" ] ],
-    [ "dht1:SDA", "uno:4", "green", [ "v40" ] ],
-
-    [ "sonar1:VCC", "uno:5V", "red", [ "v20", "*", "v30" ] ],
-    [ "sonar1:GND", "uno:GND.1", "black", [ "v30" ] ],
-    [ "sonar1:TRIG", "uno:11", "orange", [ "v40" ] ],
-    [ "sonar1:ECHO", "uno:10", "gold", [ "v50" ] ],
-
-    [ "relay1:VCC", "uno:5V", "red", [ "h-20", "*", "v30" ] ],
-    [ "relay1:GND", "uno:GND.1", "black", [ "h-30" ] ],
-    [ "relay1:IN", "uno:9", "cyan", [ "h-40" ] ],
-    [ "relay1:COM", "uno:5", "magenta", [ "h20", "v-60" ] ],
-    [ "relay1:NO", "rmot:1", "magenta", [ "h30" ] ],
-    [ "rmot:2", "ledmot:A", "magenta", [] ],
-    [ "ledmot:C", "uno:GND.3", "black", [ "v60" ] ],
-
-    [ "uno:A0", "rg:1", "green", [ "v20" ] ],
-    [ "uno:A1", "ry:1", "gold", [ "v30" ] ],
-    [ "uno:A2", "rr:1", "red", [ "v40" ] ],
-    [ "rg:2", "ledg:A", "green", [] ],
-    [ "ry:2", "ledy:A", "gold", [] ],
-    [ "rr:2", "ledr:A", "red", [] ],
-    [ "ledg:C", "uno:GND.3", "black", [ "v20" ] ],
-    [ "ledy:C", "uno:GND.3", "black", [ "v20" ] ],
-    [ "ledr:C", "uno:GND.3", "black", [ "v20" ] ],
-
-    [ "bz1:2", "uno:8", "orange", [ "v-20" ] ],
-    [ "bz1:1", "uno:GND.3", "black", [ "v20" ] ],
-
-    [ "btngo:1.l", "uno:2", "green", [ "v-20" ] ],
-    [ "btngo:2.l", "uno:GND.3", "black", [ "v20" ] ],
-    [ "btnstop:1.l", "uno:3", "red", [ "v-30" ] ],
-    [ "btnstop:2.l", "uno:GND.3", "black", [ "v20" ] ]
+  [
+   "sonar1:ECHO",
+   "uno:10",
+   "gold",
+   []
   ],
-  "serialMonitor": { "display": "auto", "newline": "lf" },
-  "dependencies": {}
+  [
+   "dht1:SDA",
+   "uno:4",
+   "green",
+   [
+    "v70",
+    "h-62"
+   ]
+  ],
+  [
+   "imu1:SCL",
+   "uno:A5.2",
+   "purple",
+   [
+    "v80",
+    "h171"
+   ]
+  ],
+  [
+   "imu1:SDA",
+   "uno:A4.2",
+   "blue",
+   [
+    "v70",
+    "h172"
+   ]
+  ],
+  [
+   "imu1:VCC",
+   "uno:5V",
+   "red",
+   [
+    "v50",
+    "h-72",
+    "v322",
+    "h335"
+   ]
+  ],
+  [
+   "sonar1:VCC",
+   "uno:5V",
+   "red",
+   [
+    "v60",
+    "h-309",
+    "v322",
+    "h335"
+   ]
+  ],
+  [
+   "dht1:VCC",
+   "uno:5V",
+   "red",
+   [
+    "v50",
+    "h-445",
+    "v322",
+    "h335"
+   ]
+  ],
+  [
+   "imu1:GND",
+   "uno:GND.2",
+   "black",
+   [
+    "v40",
+    "h-96",
+    "v348",
+    "h360"
+   ]
+  ],
+  [
+   "sonar1:GND",
+   "uno:GND.2",
+   "black",
+   [
+    "v50",
+    "h-354",
+    "v348",
+    "h360"
+   ]
+  ],
+  [
+   "dht1:GND",
+   "uno:GND.3",
+   "black",
+   [
+    "v40",
+    "h276",
+    "v348",
+    "h-396"
+   ]
+  ],
+  [
+   "lcd1:VCC",
+   "uno:5V",
+   "red",
+   [
+    "h-25",
+    "v180",
+    "h681"
+   ]
+  ],
+  [
+   "lcd1:GND",
+   "uno:GND.2",
+   "black",
+   [
+    "h-15",
+    "v206",
+    "h681"
+   ]
+  ],
+  [
+   "lcd1:SDA",
+   "uno:A4",
+   "blue",
+   [
+    "h-35",
+    "v209",
+    "h777"
+   ]
+  ],
+  [
+   "lcd1:SCL",
+   "uno:A5",
+   "purple",
+   [
+    "h-45",
+    "v209",
+    "h797"
+   ]
+  ],
+  [
+   "relay1:VCC",
+   "uno:5V",
+   "red",
+   [
+    "h-15",
+    "*",
+    "v40"
+   ]
+  ],
+  [
+   "relay1:GND",
+   "uno:GND.3",
+   "black",
+   [
+    "h-25",
+    "*",
+    "v55"
+   ]
+  ],
+  [
+   "relay1:IN",
+   "uno:9",
+   "cyan",
+   [
+    "h-35",
+    "*",
+    "v-25"
+   ]
+  ],
+  [
+   "relay1:COM",
+   "uno:5",
+   "magenta",
+   [
+    "h20",
+    "*",
+    "v-15"
+   ]
+  ],
+  [
+   "relay1:NO",
+   "rmot:1",
+   "magenta",
+   [
+    "h10"
+   ]
+  ],
+  [
+   "rmot:2",
+   "ledmot:A",
+   "magenta",
+   []
+  ],
+  [
+   "ledmot:C",
+   "uno:GND.3",
+   "black",
+   [
+    "v20",
+    "h35",
+    "v131",
+    "h-396"
+   ]
+  ],
+  [
+   "uno:A0",
+   "rg:1",
+   "green",
+   [
+    "v33",
+    "h-188.5"
+   ]
+  ],
+  [
+   "rg:2",
+   "ledg:A",
+   "green",
+   []
+  ],
+  [
+   "ledg:C",
+   "uno:GND.3",
+   "black",
+   [
+    "v33",
+    "h-30",
+    "v-172",
+    "h199"
+   ]
+  ],
+  [
+   "uno:A1",
+   "ry:1",
+   "gold",
+   [
+    "v41",
+    "h-148.5"
+   ]
+  ],
+  [
+   "ry:2",
+   "ledy:A",
+   "gold",
+   []
+  ],
+  [
+   "ledy:C",
+   "uno:GND.3",
+   "black",
+   [
+    "v33",
+    "h-80",
+    "v-172",
+    "h199"
+   ]
+  ],
+  [
+   "uno:A2",
+   "rr:1",
+   "red",
+   [
+    "v49",
+    "h-107.5"
+   ]
+  ],
+  [
+   "rr:2",
+   "ledr:A",
+   "red",
+   []
+  ],
+  [
+   "ledr:C",
+   "uno:GND.3",
+   "black",
+   [
+    "v33",
+    "h-130",
+    "v-172",
+    "h199"
+   ]
+  ],
+  [
+   "bz1:2",
+   "uno:8",
+   "orange",
+   [
+    "v26",
+    "h378",
+    "v-445",
+    "h-417"
+   ]
+  ],
+  [
+   "bz1:1",
+   "uno:GND.3",
+   "black",
+   [
+    "v36",
+    "h28"
+   ]
+  ],
+  [
+   "btngo:1.l",
+   "uno:2",
+   "green",
+   [
+    "h-10",
+    "v-43",
+    "h310",
+    "v-325",
+    "h-363"
+   ]
+  ],
+  [
+   "btngo:2.l",
+   "uno:GND.3",
+   "black",
+   [
+    "h-20",
+    "v-84"
+   ]
+  ],
+  [
+   "btnstop:1.l",
+   "uno:3",
+   "red",
+   [
+    "h-10",
+    "v-51",
+    "h200",
+    "v-327",
+    "h-383"
+   ]
+  ],
+  [
+   "btnstop:2.l",
+   "uno:GND.3",
+   "black",
+   [
+    "h-20",
+    "v-84"
+   ]
+  ]
+ ],
+ "serialMonitor": {
+  "display": "auto",
+  "newline": "lf"
+ },
+ "dependencies": {}
 }
