@@ -32,6 +32,8 @@ for name in ORDER:
     for line in open(os.path.join(FW, name), encoding="utf-8").read().splitlines():
         if OWN_INCLUDE.match(line) or line.strip() == "#pragma once":
             continue
+        if line.startswith("#define WOKWI_SIMULATION 0"):
+            line = "#define WOKWI_SIMULATION 1   // set by make_sketch.py: this copy runs in Wokwi"
         out.append(line)
     out.append("")
 open(os.path.join(HERE, "sketch.ino"), "w", encoding="utf-8").write("\n".join(out) + "\n")

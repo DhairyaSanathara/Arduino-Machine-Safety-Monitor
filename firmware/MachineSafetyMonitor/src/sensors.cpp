@@ -184,7 +184,8 @@ void finishWindow(uint32_t now) {
   nSamples = 0;
 
   // A real MPU6050 always has a little noise. Exactly zero variance = frozen sensor.
-  if (var < 0.5) {
+  // (Skipped in the Wokwi simulation, whose MPU6050 has no noise - see config.h.)
+  if (!WOKWI_SIMULATION && var < 0.5) {
     if (mpuStuckCount < 255) mpuStuckCount++;
     if (mpuStuckCount >= 3) mpuFail = true;
     var = 0;

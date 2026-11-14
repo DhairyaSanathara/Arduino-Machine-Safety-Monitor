@@ -64,6 +64,10 @@ const uint32_t SERIAL_BAUD    = 9600;   // Serial Monitor must be set to the sam
 const bool USE_12V_SENSE      = HAS_12V_DIVIDER && (ENA_PIN != 10);
 const float SENSE_RATIO       = (10.0 + 4.7) / 4.7;   // divider: 12 V becomes 3.84 V at A3
 const float SHUNT_OHMS        = 0.1;    // only for the OPTIONAL INA219 (shunt marked R100)
+// 0 on the real machine. hardware/wokwi/make_sketch.py sets it to 1 for the Wokwi
+// simulation, whose MPU6050 gives perfectly steady numbers (no noise at all): there
+// the "frozen sensor" check would wrongly report the MPU6050 as stuck.
+#define WOKWI_SIMULATION 1   // set by make_sketch.py: this copy runs in Wokwi
 
 // ============================== 3. SAFETY LIMITS ===========================
 // Proximity, cm (smaller = more dangerous)
@@ -1149,7 +1153,8 @@ void finishWindow(uint32_t now) {
   nSamples = 0;
 
   // A real MPU6050 always has a little noise. Exactly zero variance = frozen sensor.
-  if (var < 0.5) {
+  // (Skipped in the Wokwi simulation, whose MPU6050 has no noise - see config.h.)
+  if (!WOKWI_SIMULATION && var < 0.5) {
     if (mpuStuckCount < 255) mpuStuckCount++;
     if (mpuStuckCount >= 3) mpuFail = true;
     var = 0;
